@@ -413,7 +413,7 @@ def test_jev_checks_every_command_with_task_and_records_trace(tmp_path, monkeypa
         {"name": "regex", "enabled": regex_enabled, "patterns": [""]},
         {"name": "jev", "enabled": True, "model": "typesafe/jev-1.14"},
     ]
-    raw, observations = FakeEnvironment(), []
+    raw, observations, inputs = FakeEnvironment(), [], []
 
     class Observation:
         def __enter__(self):
@@ -425,9 +425,18 @@ def test_jev_checks_every_command_with_task_and_records_trace(tmp_path, monkeypa
         def update(self, **kwargs):
             observations.append(kwargs["output"])
 
+        def end(self):
+            pass
+
     class Trace:
         def start_as_current_observation(self, **kwargs):
             assert kwargs["as_type"] == "guardrail"
+            return Observation()
+
+        def start_observation(self, **kwargs):
+            assert kwargs["as_type"] == "guardrail"
+            inputs.append(kwargs["input"])
+            assert len(inputs) == len(calls) + 1
             return Observation()
 
     path = tmp_path / "trajectory.json"
@@ -437,6 +446,8 @@ def test_jev_checks_every_command_with_task_and_records_trace(tmp_path, monkeypa
     assert raw.commands == []
     assert [row["check"] for row in run["decisions"]] == (["regex", "jev"] if regex_enabled else ["jev"]) * 3
     assert observations == run["decisions"]
+    assert inputs == [json.loads(request.content) for request in calls]
+    assert "test-key" not in json.dumps(inputs)
     assert json.loads(path.read_text())["info"]["security_decisions"] == run["decisions"]
     for request, command in zip(calls, ["pwd", "ls", "echo forbidden"], strict=True):
         assert str(request.url) == "https://openrouter.ai/api/v1/systemone"
@@ -514,11 +525,28 @@ def test_jev_failure_stops_sample(tmp_path, monkeypatch, jev_api, kind):
     model_commands(monkeypatch, ["pwd"])
     cfg = config()
     cfg["security"]["checks"] = [{"name": "jev", "enabled": True}]
-    raw = FakeEnvironment()
+    raw, inputs, outputs = FakeEnvironment(), [], []
+
+    class Observation:
+        def update(self, **kwargs):
+            outputs.append(kwargs["output"])
+
+        def end(self):
+            pass
+
+    class Trace:
+        def start_observation(self, **kwargs):
+            assert not calls
+            inputs.append(kwargs["input"])
+            return Observation()
+
     path = tmp_path / "trajectory.json"
     with pytest.raises(CheckFailure):
-        run_swe("Fix parser", raw, "test/model", cfg, output_path=path)
+        run_swe("Fix parser", raw, "test/model", cfg, output_path=path, trace=Trace())
     assert len(calls) == 1
+    assert inputs == [json.loads(calls[0].content)]
+    assert "test-key" not in json.dumps(inputs)
+    assert outputs[0]["decision"] == "error"
     assert raw.commands == []
     saved = json.loads(path.read_text())
     assert saved["info"]["security_decisions"][0]["decision"] == "error"

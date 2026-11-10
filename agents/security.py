@@ -49,11 +49,12 @@ def validate_checks(checks):
 class GuardedEnvironment:
     """Check model commands, then delegate allowed commands to mini's environment."""
 
-    def __init__(self, env, checks, record, context=None):
+    def __init__(self, env, checks, record, context=None, on_jev_request=None):
         self.env = env
         self.checks = validate_checks(checks)
         self.record = record
         self.context = context
+        self.on_jev_request = on_jev_request
         self.error = None
 
     def __getattr__(self, name):
@@ -66,7 +67,12 @@ class GuardedEnvironment:
             for check in self.checks:
                 if not check["enabled"]:
                     continue
-                decision = SUPPORTED_GUARDRAILS[check["name"]].check(command, check, self.context)
+                if check["name"] == "jev":
+                    decision = SUPPORTED_GUARDRAILS["jev"].check(
+                        command, check, self.context, on_request=self.on_jev_request,
+                    )
+                else:
+                    decision = SUPPORTED_GUARDRAILS[check["name"]].check(command, check, self.context)
                 if (
                     not isinstance(decision, GuardrailResult)
                     or not isinstance(decision.blocked, bool)
