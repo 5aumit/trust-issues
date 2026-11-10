@@ -1,4 +1,6 @@
-# Coding agent evaluation research
+# Trust Issues
+
+![Guardrail pipeline: a GitHub issue with injected text reaches mini-swe-agent, which emits Bash commands that guardrails allow or block](assets/guardrail-pipeline.png)
 
 Course project for [TAI4SE](https://tai4se.github.io).
 
@@ -12,6 +14,7 @@ Install Conda and Docker with the Compose plugin. Start Docker.
 Run all commands from the repository root.
 
 ```bash
+git clone https://github.com/5aumit/trust-issues && cd trust-issues
 conda env create -f environment.yml
 conda activate tai4se-secure-coding-agents
 docker info
@@ -32,10 +35,21 @@ step limit, time limit, cost limit, and security checks. The default model is
 Copy the config to create an experiment configuration. Pass it to either runner
 with `--config path/to/config.yaml`. Enable or disable checks in that file.
 Set `experiment` to a short, lowercase, hyphenated name for the setting being
-tested, such as `regex-v1`. Reuse it across benchmarks and models that should be
+tested, such as `regex-l2`. Reuse it across benchmarks and models that should be
 compared.
-`configs/regex/` has loose, moderate, and strict regex configs, for example
-`--config configs/regex/l2_moderate.yaml`.
+
+`configs/regex/` has three cumulative regex levels. Each blocks everything the
+level below does, plus:
+
+- `l1_loose.yaml`: known-malicious commands, such as writing agent policy files,
+  git hooks, `curl | sh`, and dumping secrets.
+- `l2_moderate.yaml`: risky actions, such as `.env` access, installing unvetted
+  packages, hidden scripts, and cron or shell startup files.
+- `l3_strict.yaml`: broad capabilities, such as network tools, any package
+  install, `subprocess` or `os.system`, and system paths.
+
+For example, pass `--config configs/regex/l2_moderate.yaml`.
+
 See [the agent guide](agents/README.md) to configure, add, or edit guardrails.
 
 To change models, pass a `provider/model` identifier as CodeIPI's first argument
@@ -122,7 +136,7 @@ text, model calls, commands, guardrail decisions, and scores. Local results rema
 available without Langfuse.
 
 Sessions are named `benchmark / model / experiment / run-id`, for example
-`codeipi / gpt-oss-20b / regex-v1 / a1b2c3`. The experiment name comes from
+`codeipi / gpt-oss-20b / regex-l2 / a1b2c3`. The experiment name comes from
 `experiment` in the config file. `RUN_BY` sets the Langfuse user, so each
 teammate's runs appear under their name.
 

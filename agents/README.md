@@ -31,7 +31,7 @@ Encoded or assembled filenames can bypass it.
 ## Configure a guardrail
 
 Copy `configs/default.yaml` to an experiment config. Keep its model and limits,
-and set `experiment` to a name for the guardrail setting, such as `regex-v1`.
+and set `experiment` to a name for the guardrail setting, such as `regex-l2`.
 Edit the security section:
 
 ```yaml

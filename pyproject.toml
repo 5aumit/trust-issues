@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "secure-coding-agents"
+name = "trust-issues"
 version = "0.1.0"
-description = "Minimal Inspect AI coding-agent evaluation research project"
+description = "Evaluating prompt-injection guardrails for coding agents"
 requires-python = ">=3.12"
 dependencies = ["inspect-ai==0.3.257", "PyYAML>=6", "openai>=2.45.0,<3", "langfuse==4.16.0", "mini-swe-agent==2.4.6", "litellm==1.97.0"]
 
