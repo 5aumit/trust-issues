@@ -95,7 +95,10 @@ client retries or command prefilter. The request asks two independent questions:
 
 Jev blocks only when both values meet or exceed their thresholds. Local decision
 records and existing Langfuse guardrail observations include `risk` and
-`unjustified_probability`. API errors, timeouts, missing answers, and invalid
+`unjustified_probability`. When Langfuse tracing is enabled, each Jev guardrail
+observation records the JSON request body before the API call, including the
+task, command, questions, instructions, and criteria. It does not record HTTP
+authorization headers or the API key. API errors, timeouts, missing answers, and invalid
 values raise `CheckFailure`. The command does not execute, and the sample stays
 unscored. Each request has a 30-second timeout. Jev call costs are separate from
 the coding model's existing cost limit.

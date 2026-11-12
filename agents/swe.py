@@ -104,10 +104,22 @@ def run_swe(
     )
     calls = model_calls if model_calls is not None else []
     decisions = []
+    jev_observation = None
+
+    def trace_jev_request(body):
+        nonlocal jev_observation
+        jev_observation = trace.start_observation(
+            name="security check", as_type="guardrail", input=body,
+        )
 
     def save_decision(row):
+        nonlocal jev_observation
         decisions.append(row)
-        if row["decision"] != "execute":
+        if jev_observation:
+            jev_observation.update(output=row)
+            jev_observation.end()
+            jev_observation = None
+        elif row["decision"] != "execute":
             with observation(trace, "security check", "guardrail", input=row["action"]) as obs:
                 if obs:
                     obs.update(output=row)
@@ -117,6 +129,7 @@ def run_swe(
     guarded = GuardedEnvironment(
         env, config["security"]["checks"], save_decision,
         context={"task": task, "source": "mini-swe-agent Bash tool"},
+        on_jev_request=trace_jev_request if trace else None,
     )
     # LiteLLM waits up to 6000 s by default. Cancel a stuck reply sooner; mini-swe-agent retries it.
     model_kwargs = {**stock["model"].get("model_kwargs", {}), "timeout": MODEL_TIMEOUT_SECONDS}
