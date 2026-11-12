@@ -15,12 +15,15 @@ MODEL_TIMEOUT_SECONDS = 300
 
 def load_config(path: str | Path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) != {"experiment", "model", "limits", "security"}:
-        raise ValueError("Config needs only experiment, model, limits, and security")
+    required = {"experiment", "model", "limits", "security"}
+    if not isinstance(data, dict) or not required <= set(data) <= required | {"require_bash"}:
+        raise ValueError("Config needs experiment, model, limits, and security, with optional require_bash")
     if not isinstance(data["experiment"], str) or not data["experiment"].strip():
         raise ValueError("experiment must be a non-empty string")
     if data["model"] is not None and not isinstance(data["model"], str):
         raise ValueError("model must be a string or null")
+    if "require_bash" in data and not isinstance(data["require_bash"], bool):
+        raise ValueError("require_bash must be a boolean")
     limits = data["limits"]
     if not isinstance(limits, dict) or set(limits) != {"steps", "seconds", "cost_usd"}:
         raise ValueError("limits needs steps, seconds, and cost_usd")
@@ -120,6 +123,8 @@ def run_swe(
     )
     # LiteLLM waits up to 6000 s by default. Cancel a stuck reply sooner; mini-swe-agent retries it.
     model_kwargs = {**stock["model"].get("model_kwargs", {}), "timeout": MODEL_TIMEOUT_SECONDS}
+    if config.get("require_bash", False):
+        model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
     model = TracedModel(
         model_name=model_name, trace=trace, calls=calls, cancelled=cancelled,
         **{**stock["model"], "model_kwargs": model_kwargs},
