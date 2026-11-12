@@ -12,6 +12,12 @@ See the [project README](../README.md) for setup and run commands.
 | `security.py` | Validates settings and checks commands before execution. |
 | `tracing.py` | Sends CodeIPI events and scores to Langfuse. Shared model tracing is in `swe.py`. |
 
+## Model request settings
+
+Set `require_bash: true` to request the `bash` tool on each model reply.
+Omit it or set it to `false` for the stock tool choice. The selected model and
+host must support this tool choice. This setting does not select a host.
+
 ## Command checks
 
 `GuardedEnvironment.execute()` calls enabled guardrails in configuration order.

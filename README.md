@@ -54,6 +54,10 @@ See [the agent guide](agents/README.md) to configure, add, or edit guardrails.
 
 To change models, pass a `provider/model` identifier as CodeIPI's first argument
 or use ITB's `--model` option. Set the corresponding provider's API key.
+Optional `require_bash: true` asks the model to call the Bash tool on each reply.
+Omit it or set it to `false` for the stock tool choice.
+See [the agent guide](agents/README.md) for details.
+
 Time and cost limits are checked between agent steps. An active model request
 can exceed them.
 

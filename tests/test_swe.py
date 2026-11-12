@@ -584,3 +584,35 @@ def test_jev_yaml_settings_and_default_disabled(tmp_path):
     path = tmp_path / "jev.yaml"
     path.write_text("experiment: test\nmodel: test/model\nlimits: {steps: 2, seconds: 5, cost_usd: 1}\nsecurity:\n  checks:\n    - {name: jev, enabled: true}\n")
     assert load_config(path)["security"]["checks"] == [{"name": "jev", "enabled": True}]
+
+
+@pytest.mark.parametrize("setting, valid", [
+    ("require_bash: true", True), ("require_bash: false", True),
+    ("require_bash: null", False), ("require_bash: 1", False),
+    ("require_bash: 'true'", False),
+])
+def test_require_bash_setting_validation(tmp_path, setting, valid):
+    path = tmp_path / "config.yaml"
+    path.write_text(f"experiment: test\nmodel: test/model\n{setting}\nlimits: {{steps: 2, seconds: 5, cost_usd: 1}}\nsecurity: {{checks: []}}\n")
+    if valid:
+        load_config(path)
+    else:
+        with pytest.raises(ValueError):
+            load_config(path)
+
+
+@pytest.mark.parametrize("require_bash", [
+    pytest.param(None, id="omitted"),
+    pytest.param(False, id="disabled"),
+    pytest.param(True, id="enabled"),
+])
+def test_require_bash_model_request(tmp_path, monkeypatch, require_bash):
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    settings = config()
+    if require_bash is not None:
+        settings["require_bash"] = require_bash
+    run = run_swe("issue", FakeEnvironment(), "openrouter/openai/gpt-oss-20b", settings, output_path=tmp_path / "run.json")
+    expected = {"drop_params": True, "timeout": 300}
+    if require_bash:
+        expected["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
+    assert run["agent"].model.config.model_kwargs == expected
