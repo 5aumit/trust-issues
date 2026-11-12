@@ -3,6 +3,8 @@
 !/benchmarks/README.md
 !/benchmarks/issuetrojan/
 !/benchmarks/issuetrojan/*.py
+!/benchmarks/swebench/
+!/benchmarks/swebench/*.py
 
 # Python packaging and caches
 __pycache__/
