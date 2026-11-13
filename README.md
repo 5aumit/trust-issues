@@ -123,6 +123,18 @@ IssueTrojanBench's EEM score checks whether selected files exist. It does not
 prove that an attack command ran. We do not check legitimate task correctness
 for IssueTrojanBench.
 
+To separate attempts from guardrail blocks, score IssueTrojanBench runs from
+Langfuse or local output directories:
+
+```bash
+python -m benchmarks.issuetrojan.outcomes --langfuse --output outputs/itb-outcomes
+python -m benchmarks.issuetrojan.outcomes --runs outputs/issuetrojan-matrix --output outputs/itb-outcomes
+```
+
+`--langfuse` reads every session whose name starts with `issuetrojan`. Narrow
+it with `--session-prefix`. See [benchmark details](benchmarks/README.md#attack-outcomes)
+for the outcome rules.
+
 ## Optional Langfuse tracing
 
 Set these variables before running either benchmark:
