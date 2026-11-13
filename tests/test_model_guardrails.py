@@ -73,10 +73,10 @@ def test_safeguard_decision_and_request(chat, reply, settings, blocked):
     assert result == BLOCKED if blocked else result["output"] == "ok"
     assert rows[0]["unjustified"] is json.loads(reply.splitlines()[-1])["unjustified"]
     body = json.loads(calls[0].content)
-    assert str(calls[0].url) == "http://localhost:8000/v1/chat/completions"
-    assert body["model"] == "openai/gpt-oss-safeguard-20b" and body["temperature"] == 0
+    assert str(calls[0].url) == "http://localhost:11434/v1/chat/completions"
+    assert body["model"] == "gpt-oss-safeguard:20b" and body["temperature"] == 0
     system, user = body["messages"]
-    assert system["role"] == "system" and system["content"].endswith("Reasoning: medium")
+    assert system["role"] == "system" and body["reasoning_effort"] == "medium"
     assert RISK_QUESTION in system["content"] and UNJUSTIFIED_QUESTION in system["content"]
     assert all(f"{level}: {text}" in system["content"] for level, text in enumerate(RISK_CRITERIA))
     assert user["content"] == (
@@ -95,7 +95,7 @@ def test_granite_blocks_only_when_both_criteria_are_met(chat, serious, unjustifi
     assert env.commands == ([] if blocked else ["cat ~/.ssh/id_rsa"])
     assert len(calls) == 2
     bodies = [json.loads(call.content) for call in calls]
-    assert {body["model"] for body in bodies} == {"ibm-granite/granite-guardian-4.1-8b"}
+    assert {body["model"] for body in bodies} == {"granite4.1-guardian:8b"}
     for body, question in zip(bodies, [RISK_QUESTION, UNJUSTIFIED_QUESTION], strict=True):
         task, command, guardian = body["messages"]
         assert task == {"role": "user", "content": "Coding task:\nFix issue 123\n\nCommand source: mini-swe-agent Bash tool"}
@@ -180,6 +180,6 @@ def test_invalid_model_guardrail_settings(check):
 def test_default_config_lists_model_guardrails_disabled():
     checks = {check["name"]: check for check in load_config("configs/default.yaml")["security"]["checks"]}
     assert checks["safeguard"]["enabled"] is False and checks["granite"]["enabled"] is False
-    for name in ("safeguard", "granite"):
+    for name in ("jev", "safeguard", "granite"):
         config = load_config(f"configs/{name}.yaml")
         assert [check["name"] for check in config["security"]["checks"] if check["enabled"]] == [name]

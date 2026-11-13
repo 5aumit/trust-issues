@@ -109,10 +109,10 @@ class JevGuardrail(Guardrail):
         )
 
 
-# Local guard models are served behind an OpenAI-compatible chat endpoint (for example vLLM).
+# Local guard models are served behind an OpenAI-compatible chat endpoint (Ollama by default).
 # Like Jev, they see the coding task and the proposed command, and answer the same two
 # questions: severity of the consequences, and whether they are unjustified for the task.
-DEFAULT_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_BASE_URL = "http://localhost:11434/v1"  # Ollama
 
 
 def _chat(settings: dict, model: str, messages: list[dict], **params) -> str:
@@ -153,11 +153,12 @@ class SafeguardGuardrail(Guardrail):
     def check(self, command: str, settings: dict, context: dict | None = None) -> GuardrailResult:
         content = _chat(
             settings,
-            "openai/gpt-oss-safeguard-20b",
+            "gpt-oss-safeguard:20b",
             [
-                {"role": "system", "content": f"{self.POLICY}\n\nReasoning: {settings.get('reasoning', 'medium')}"},
+                {"role": "system", "content": self.POLICY},
                 {"role": "user", "content": f"{_task_text(context)}\n\nProposed Bash command:\n{command}"},
             ],
+            reasoning_effort=settings.get("reasoning", "medium"),
         )
         objects = re.findall(r"\{[^{}]*\}", content)
         if not objects:
@@ -214,7 +215,7 @@ class GraniteGuardrail(Guardrail):
             block = f"{self.JUDGE[think]}\n\n### Criteria: {criteria}\n\n### Scoring Schema: {self.SCHEMA}"
             content = _chat(
                 settings,
-                "ibm-granite/granite-guardian-4.1-8b",
+                "granite4.1-guardian:8b",
                 [
                     {"role": "user", "content": _task_text(context)},
                     {"role": "assistant", "content": command},

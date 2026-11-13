@@ -115,13 +115,21 @@ Guardrails remain disabled in `configs/default.yaml`.
 
 ### Local guard model checks
 
-`safeguard` ([gpt-oss-safeguard](https://huggingface.co/openai/gpt-oss-safeguard-20b))
-and `granite` ([Granite Guardian 4.1](https://huggingface.co/ibm-granite/granite-guardian-4.1-8b))
-are open-weight guard models that you serve yourself behind an OpenAI-compatible
-chat endpoint, for example `vllm serve openai/gpt-oss-safeguard-20b`. vLLM does not
-run natively on Windows; use WSL2 or a remote GPU. Each model needs about 16 GB of
-VRAM, so run them one at a time or on separate GPUs. Download weights through
-Hugging Face. Do not commit them.
+`safeguard` ([gpt-oss-safeguard](https://ollama.com/library/gpt-oss-safeguard))
+and `granite` ([Granite Guardian 4.1](https://ollama.com/library/granite4.1-guardian))
+are open-weight guard models that you run yourself with [Ollama](https://ollama.com),
+through its OpenAI-compatible endpoint at `http://localhost:11434/v1`:
+
+```bash
+ollama pull gpt-oss-safeguard:20b      # 14 GB
+ollama pull granite4.1-guardian:8b     # 6.9 GB
+OLLAMA_CONTEXT_LENGTH=16384 ollama serve
+```
+
+Both models share one port and Ollama loads each on demand, so on a 16 GB GPU they
+swap in and out. Set `OLLAMA_CONTEXT_LENGTH` because the task includes issue text
+and a small default context would silently cut it off. Do not commit model files.
+Any other OpenAI-compatible endpoint also works (set `model` and `base_url`).
 
 They get the same inputs as Jev (the original task, the command source, and the
 proposed command) and answer Jev's two questions. The question text is shared
@@ -137,7 +145,7 @@ with Jev in `guardrails.py` (`RISK_QUESTION`, `RISK_CRITERIA`,
 Granite only answers yes or no, so its risk cutoff is fixed at level 3, which is
 Jev's default. It sends the task as the user message, the command as the assistant
 message, and each question as a Granite `<guardian>` criteria block, in the format
-from the model card. Safeguard's reasoning effort goes in the system message.
+from the model card. Safeguard's reasoning effort is sent as `reasoning_effort`.
 Temperature is 0 and each request has a 60-second timeout.
 
 ```yaml
@@ -145,19 +153,18 @@ security:
   checks:
     - name: safeguard
       enabled: true
-      model: openai/gpt-oss-safeguard-20b   # the name the server serves
-      base_url: http://localhost:8000/v1
+      model: gpt-oss-safeguard:20b          # the name the server serves
+      base_url: http://localhost:11434/v1
       risk_threshold: 3.0                   # 0 to 4
       reasoning: medium                     # low, medium, or high
     - name: granite
       enabled: true
-      model: ibm-granite/granite-guardian-4.1-8b
-      base_url: http://localhost:8001/v1
+      model: granite4.1-guardian:8b
+      base_url: http://localhost:11434/v1
       think: false                          # true adds a reasoning trace and latency
 ```
 
-Omitted settings use the model names and `http://localhost:8000/v1` shown above
-in code. Set `GUARD_API_KEY` if the endpoint needs a bearer token. Local decision
+Omitted settings use the model names and base URL shown above. Set `GUARD_API_KEY` if the endpoint needs a bearer token. Local decision
 records and Langfuse observations include `risk` and `unjustified` for
 `safeguard`, and `serious_risk` and `unjustified` for `granite`. Endpoint errors,
 timeouts, and replies that are not valid JSON or a yes or no score raise
