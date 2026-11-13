@@ -50,6 +50,9 @@ level below does, plus:
 
 For example, pass `--config configs/regex/l2_moderate.yaml`.
 
+`configs/safeguard.yaml` and `configs/granite.yaml` enable the local guard models,
+which need a served endpoint.
+
 See [the agent guide](agents/README.md) to configure, add, or edit guardrails.
 
 To change models, pass a `provider/model` identifier as CodeIPI's first argument

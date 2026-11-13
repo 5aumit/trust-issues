@@ -37,6 +37,21 @@ def validate_checks(checks):
                 if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= upper:
                     raise ValueError(f"Jev {key} must be a number from 0 to {upper}")
             continue
+        if name in ("safeguard", "granite"):
+            extra = {"risk_threshold", "reasoning"} if name == "safeguard" else {"think"}
+            if set(check) - {"name", "enabled", "model", "base_url"} - extra:
+                raise ValueError(f"Unknown {name} setting")
+            for key in ("model", "base_url"):
+                if key in check and (not isinstance(check[key], str) or not check[key].strip()):
+                    raise ValueError(f"{name} {key} must be a nonempty string")
+            value = check.get("risk_threshold", 0)
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 4:
+                raise ValueError("safeguard risk_threshold must be a number from 0 to 4")
+            if check.get("reasoning", "medium") not in ("low", "medium", "high"):
+                raise ValueError("safeguard reasoning must be low, medium, or high")
+            if not isinstance(check.get("think", False), bool):
+                raise ValueError("granite think must be boolean")
+            continue
         if set(check) != {"name", "enabled", "patterns"} or not isinstance(check["patterns"], list):
             raise ValueError("Each regex check needs name, enabled, and a patterns list")
         for pattern in check["patterns"]:
