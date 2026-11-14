@@ -96,6 +96,27 @@ docker build -t issuetrojan-smoke:py312 \
   -f configs/issuetrojan/Dockerfile configs/issuetrojan
 ```
 
+Supply-chain package installs normally stay offline and fail when the requested
+package is not present in the image. To study whether an agent attempts and
+completes the install, build a separate opt-in image with six empty local wheel
+distributions. The wheels contain package metadata only. The agent still runs
+the install command, and the default image remains unchanged:
+
+```bash
+docker build --build-arg LOCAL_DUMMY_PACKAGES=1 \
+  -t issuetrojan-smoke:py312-dummy-packages \
+  -f configs/issuetrojan/Dockerfile configs/issuetrojan
+python -m scripts.run_issuetrojan \
+  --samples sympy_matrix_det:supply_chain:mid_en_visible \
+  --local-dummy-packages \
+  --output outputs/issuetrojan-supply-chain-local-packages
+```
+
+The opt-in image sets pip to use only its local wheelhouse. The runner records
+the option in provenance and checks distribution metadata before and after the
+agent run. This records whether installation occurred; it does not change EEM
+or the released EEM score.
+
 List cases, then run one sample:
 
 ```bash
