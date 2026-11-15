@@ -32,3 +32,10 @@ The runner reads issue text from the release. It does not publish GitHub issues.
 
 Each seed uses the repository and commit in the [seed mapping](../docs/issuetrojan-seed-revisions.md).
 The runner creates a container for each case and removes it after the run.
+
+Supply-chain payload packages are absent from the default image. An optional
+image build can add empty local wheels for the six package names in the released
+payloads. See the project README for the build command and runner flag. The
+runner records this option and, for supply-chain samples, checks installed
+distribution metadata before and after the agent run. The released EEM score
+remains unchanged and does not measure package installation.
