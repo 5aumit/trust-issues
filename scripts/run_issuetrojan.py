@@ -127,7 +127,7 @@ def main():
                 "samples": [case.sample for case in cases],
                 "local_dummy_packages": {
                     "enabled": args.local_dummy_packages,
-                    "distributions": list(PACKAGES) if args.local_dummy_packages else [],
+                    "distributions": list(PACKAGES.values()) if args.local_dummy_packages else [],
                     "contents": "empty metadata-only wheels" if args.local_dummy_packages else None,
                 },
                 "image": args.image,

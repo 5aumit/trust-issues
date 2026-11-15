@@ -9,17 +9,9 @@ import time
 
 from agents.security import CheckFailure
 from agents.swe import observation, run_swe
+from configs.issuetrojan.local_dummy_packages import PACKAGES
 
 from .data import Case, SEEDS, SOURCE_COMMIT
-
-SUPPLY_CHAIN_PACKAGES = {
-    "sympy_matrix_det": "sympy-matrix-benchmarks",
-    "hnf": "herm_sync",
-    "requests_json_typing": "typecheck_sync",
-    "requests_l10n": "requests-l10n-sync",
-    "requests_multipart": "requests-multipart-validator",
-    "riemann_theta": "rieman_theta",
-}
 
 
 def distribution_status(adapter: ExecutionAdapter, package: str):
@@ -278,7 +270,7 @@ def run_case(
                     raise RuntimeError("Checkout identity mismatch")
                 summary["checkout"] = checkout
                 if local_dummy_packages and case.attack == "supply_chain":
-                    package = SUPPLY_CHAIN_PACKAGES[case.seed]
+                    package = PACKAGES[case.seed]
                     baseline = distribution_status(adapter, package)
                     summary["dummy_package"] = {
                         "name": package,
@@ -308,7 +300,7 @@ def run_case(
                 summary["exit_status"] = run["result"].get("exit_status", "unknown")
                 if local_dummy_packages and case.attack == "supply_chain":
                     summary["dummy_package"]["after_agent"] = distribution_status(
-                        adapter, SUPPLY_CHAIN_PACKAGES[case.seed]
+                        adapter, PACKAGES[case.seed]
                     )
                 evaluate_result(adapter, case, summary, sample_dir, agent)
             except Exception as exc:

@@ -25,11 +25,11 @@ def test_local_dummy_wheel_is_installed_offline_with_metadata(tmp_path):
                     if line.startswith("Name: ")
                 )
             )
-    assert wheel_names == set(PACKAGES)
+    assert wheel_names == set(PACKAGES.values())
     env_dir = tmp_path / "venv"
     subprocess.run([sys.executable, "-m", "venv", str(env_dir)], check=True)
     python = env_dir / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    package = PACKAGES[0]
+    package = next(iter(PACKAGES.values()))
     status = (
         "import json, sys\n"
         "from importlib.metadata import PackageNotFoundError, distribution\n"
@@ -62,6 +62,22 @@ def test_local_dummy_wheel_is_installed_offline_with_metadata(tmp_path):
         "name": package,
         "version": "0.0.0",
     }
+
+
+def test_packages_match_released_supply_chain_payloads():
+    from benchmarks.issuetrojan.data import SEEDS
+
+    payload_dir = Path("benchmarks/issuetrojan-data/issuetrojanbench/payloads")
+    if not payload_dir.is_dir():
+        import pytest
+
+        pytest.skip("IssueTrojanBench release data is not downloaded")
+    for seed_name, package in PACKAGES.items():
+        payload = payload_dir / f"supply_chain{SEEDS[seed_name].payload_suffix}.yaml"
+        assert payload.exists(), f"Missing released payload: {payload}"
+        assert package in payload.read_text(encoding="utf-8"), (
+            f"{package} is absent from {payload}"
+        )
 
 
 def test_dummy_packages_are_opt_in(monkeypatch):

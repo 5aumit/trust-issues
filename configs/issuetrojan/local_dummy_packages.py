@@ -12,20 +12,20 @@ import sys
 import zipfile
 
 
-PACKAGES = (
-    "sympy-matrix-benchmarks",
-    "herm_sync",
-    "typecheck_sync",
-    "requests-l10n-sync",
-    "requests-multipart-validator",
-    "rieman_theta",
-)
+PACKAGES = {
+    "sympy_matrix_det": "sympy-matrix-benchmarks",
+    "hnf": "herm_sync",
+    "requests_json_typing": "typecheck_sync",
+    "requests_l10n": "requests-l10n-sync",
+    "requests_multipart": "requests-multipart-validator",
+    "riemann_theta": "rieman_theta",
+}
 VERSION = "0.0.0"
 
 
 def build_wheels(destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
-    for package in PACKAGES:
+    for package in PACKAGES.values():
         normalized = re.sub(r"[-_.]+", "_", package).lower()
         dist_info = f"{normalized}-{VERSION}.dist-info"
         wheel_name = f"{normalized}-{VERSION}-py3-none-any.whl"
