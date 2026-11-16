@@ -43,7 +43,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     os.environ["MSWEA_GLOBAL_CONFIG_DIR"] = str((args.output / "mini-config").resolve())
     os.environ["MSWEA_SILENT_STARTUP"] = "1"
-    from benchmarks.swebench.runner import run_instance
+    from benchmarks.swebench.runner import run_instance, run_report
     from agents.swe import configure
 
     config = configure(
@@ -98,13 +98,11 @@ def main():
                             client=client,
                         )
                     )
-                resolved = [row["resolved"] for row in results if row["resolved"] is not None]
                 (args.output / "results.json").write_text(
                     json.dumps(
                         {
                             "session": attributes["session_id"],
-                            "resolved": sum(resolved),
-                            "scored": len(resolved),
+                            **run_report([row["instance_id"] for row in instances], results),
                             "results": results,
                         },
                         indent=2,

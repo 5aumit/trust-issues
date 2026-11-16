@@ -168,3 +168,23 @@ def test_agent_container_failure_skips_grading_and_cleans_up(tmp_path, monkeypat
     assert result["cleanup"]["verified_absent"] is True
     assert result["resolved"] is None
     assert result["infrastructure_error"] == "RuntimeError"
+
+
+def test_run_report_uses_every_selected_task():
+    results = [
+        {"instance_id": "a", "resolved": 1, "scoring_status": "scored"},
+        {"instance_id": "b", "resolved": 0, "scoring_status": "scored"},
+        {"instance_id": "c", "resolved": 0, "scoring_status": "empty_patch"},
+        {"instance_id": "d", "resolved": 0, "scoring_status": "test_timeout"},
+        {"instance_id": "e", "resolved": None, "scoring_status": "not_reached", "infrastructure_error": "RuntimeError"},
+    ]
+    report = runner.run_report(["a", "b", "c", "d", "e", "f"], results)
+    assert report["total_instances"] == 6
+    assert report["resolved_rate"] == 1 / 6
+    assert {group: report[f"{group}_ids"] for group in ("resolved", "unresolved", "empty_patch", "error", "incomplete")} == {
+        "resolved": ["a"],
+        "unresolved": ["b"],
+        "empty_patch": ["c"],
+        "error": ["d", "e"],
+        "incomplete": ["f"],
+    }

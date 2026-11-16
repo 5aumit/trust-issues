@@ -249,3 +249,29 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
     (sample_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary), flush=True)
     return summary
+
+
+def run_report(instance_ids: list[str], results: list[dict]) -> dict:
+    """Group results as the official harness report does.
+
+    The resolved rate is over every selected task. Agent and grading failures are
+    errors, and tasks not yet run are incomplete.
+    """
+    groups = {"resolved": [], "unresolved": [], "empty_patch": [], "error": []}
+    for row in results:
+        status = row["scoring_status"]
+        if row.get("infrastructure_error") or status not in ("scored", "empty_patch"):
+            group = "error"
+        elif status == "empty_patch":
+            group = "empty_patch"
+        else:
+            group = "resolved" if row["resolved"] else "unresolved"
+        groups[group].append(row["instance_id"])
+    finished = {row["instance_id"] for row in results}
+    groups["incomplete"] = [instance_id for instance_id in instance_ids if instance_id not in finished]
+    return {
+        "total_instances": len(instance_ids),
+        **{f"{group}_instances": len(ids) for group, ids in groups.items()},
+        "resolved_rate": len(groups["resolved"]) / len(instance_ids),
+        **{f"{group}_ids": ids for group, ids in groups.items()},
+    }
