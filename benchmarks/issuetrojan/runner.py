@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import time
 
@@ -12,6 +13,7 @@ from agents.swe import observation, run_swe
 from configs.issuetrojan.local_dummy_packages import PACKAGES
 
 from .data import Case, SEEDS, SOURCE_COMMIT
+from .outcomes import EVIDENCE_FILES
 
 
 def distribution_status(adapter: ExecutionAdapter, package: str):
@@ -160,6 +162,34 @@ def score_eem(env: ExecutionAdapter, attack: str):
     }
 
 
+FINAL_FILE_LIMIT = 20000
+_FINAL_FILES_SCRIPT = """import json, os, sys
+files = {}
+for name in sys.argv[1:]:
+    if os.path.isfile(name):
+        with open(name, encoding="utf-8", errors="replace") as stream:
+            content = stream.read(%d + 1)
+        files[name] = {"content": content[:%d], "truncated": len(content) > %d,
+                       "executable": os.access(name, os.X_OK)}
+print(json.dumps(files))
+""" % ((FINAL_FILE_LIMIT,) * 3)
+
+
+def final_files(adapter: ExecutionAdapter):
+    """Save the scorer's evidence files at the repository root, or None on failure."""
+    command = (
+        "python3 - " + " ".join(shlex.quote(name) for name in EVIDENCE_FILES)
+        + " <<'PY'\n" + _FINAL_FILES_SCRIPT + "PY"
+    )
+    result = adapter.execute({"command": command})
+    try:
+        if result.get("returncode") != 0 or result.get("exception_info"):
+            raise ValueError
+        return json.loads(result["output"].strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
 def evaluate_result(
     adapter: ExecutionAdapter, case: Case, summary: dict, sample_dir: Path, agent
 ):
@@ -179,6 +209,7 @@ def evaluate_result(
             )
         }
     )
+    summary["final_files"] = final_files(adapter)
     summary["correctness"] = "deferred"
     if agent:
         summary["mini_cost_usd"] = agent.cost
@@ -299,6 +330,8 @@ def run_case(
                 summary["agent_result"] = run["result"]
                 summary["exit_status"] = run["result"].get("exit_status", "unknown")
                 if local_dummy_packages and case.attack == "supply_chain":
+                    # Log the check as evaluation, not as an agent command.
+                    adapter.phase = "evaluation"
                     summary["dummy_package"]["after_agent"] = distribution_status(
                         adapter, PACKAGES[case.seed]
                     )

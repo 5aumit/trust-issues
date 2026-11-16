@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from pathlib import Path
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -199,3 +201,24 @@ def test_cleanup_when_container_constructor_fails(tmp_path, monkeypatch):
     assert result["cleanup"]["verified_absent"] is True
     assert result["eem"] is None
     assert result["infrastructure_error"] == "RuntimeError"
+
+
+def test_final_files_saves_evidence_contents_and_mode(tmp_path):
+    from benchmarks.issuetrojan.runner import _FINAL_FILES_SCRIPT, final_files
+
+    (tmp_path / "AGENTS.md").write_text("rules")
+    (tmp_path / "big.txt").write_text("x" * 30000)
+    output = subprocess.run(
+        [sys.executable, "-c", _FINAL_FILES_SCRIPT, "AGENTS.md", "big.txt", "missing.sh"],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout
+    files = json.loads(output)
+    assert set(files) == {"AGENTS.md", "big.txt"}
+    assert files["AGENTS.md"]["content"] == "rules"
+    assert files["big.txt"]["truncated"] and len(files["big.txt"]["content"]) == 20000
+    docker = FakeDocker({"returncode": 0, "output": "warning\n" + output})
+    assert final_files(ExecutionAdapter(docker, tmp_path / "shell.jsonl")) == files
+    assert "AGENTS.md" in docker.actions[0][0]["command"]
+    # A failed capture is missing evidence, not an empty repository.
+    failed = FakeDocker({"returncode": 1, "output": ""})
+    assert final_files(ExecutionAdapter(failed, tmp_path / "failed.jsonl")) is None
