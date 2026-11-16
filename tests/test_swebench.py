@@ -78,7 +78,7 @@ def test_patch_includes_all_changes_against_starting_commit(tmp_path):
     assert runner.collect_patch(adapter, "def456") == "diff --git a/x b/x\n"
     assert docker.actions == [
         "git rev-parse HEAD",
-        "git -c core.fileMode=false add -A && git -c core.fileMode=false diff --cached --text def456",
+        "git -c core.fileMode=false add -A && git -c core.fileMode=false diff --cached --binary def456",
     ]
     docker.result = {"returncode": 128, "output": "fatal"}
     with pytest.raises(RuntimeError):

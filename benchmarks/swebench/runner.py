@@ -87,9 +87,12 @@ def start_commit(adapter: ExecutionAdapter) -> str:
 
 
 def collect_patch(adapter: ExecutionAdapter, commit: str) -> str:
-    """Return every change the agent made relative to the starting commit."""
+    """Return the agent's changes relative to the starting commit.
+
+    Binary changes are kept. File permission changes and ignored files are not included.
+    """
     result = adapter.execute(
-        {"command": f"git -c core.fileMode=false add -A && git -c core.fileMode=false diff --cached --text {commit}"},
+        {"command": f"git -c core.fileMode=false add -A && git -c core.fileMode=false diff --cached --binary {commit}"},
         timeout=120,
     )
     if result["returncode"] or result.get("exception_info"):
