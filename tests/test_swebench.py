@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from benchmarks.issuetrojan.runner import ExecutionAdapter
+from agents.swe import ExecutionAdapter
 from benchmarks.swebench.data import select_instances
 from benchmarks.swebench.grade import grade
 import benchmarks.swebench.runner as runner

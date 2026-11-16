@@ -10,7 +10,6 @@ from pathlib import Path
 import uuid
 
 from benchmarks.swebench.data import DATASET, REVISION, load_instances, select_instances
-from scripts.run_issuetrojan import configure, configure_tracing
 
 
 def parse_args():
@@ -45,6 +44,7 @@ def main():
     os.environ["MSWEA_GLOBAL_CONFIG_DIR"] = str((args.output / "mini-config").resolve())
     os.environ["MSWEA_SILENT_STARTUP"] = "1"
     from benchmarks.swebench.runner import run_instance
+    from agents.swe import configure
 
     config = configure(
         path=args.config,
@@ -70,8 +70,9 @@ def main():
             indent=2,
         )
     )
+    from agents.tracing import configure_tracing, guardrail_tag, trace_attributes
+
     client = configure_tracing()
-    from agents.tracing import guardrail_tag, trace_attributes
 
     attributes = trace_attributes(
         "swebench",

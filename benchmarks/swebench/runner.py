@@ -8,8 +8,7 @@ import subprocess
 import time
 
 from agents.security import CheckFailure
-from agents.swe import observation, run_swe
-from benchmarks.issuetrojan.runner import ExecutionAdapter
+from agents.swe import ExecutionAdapter, observation, run_swe
 
 from .grade import grade
 
