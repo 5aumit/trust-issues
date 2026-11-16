@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from pathlib import Path
 import json
 
@@ -139,11 +140,30 @@ def test_stock_submission_is_logged_and_propagated(tmp_path, monkeypatch):
                 }
             )
 
-    adapter = ExecutionAdapter(SubmitDocker(), tmp_path / "shell.jsonl")
+    class FailDocker:
+        def execute(self, action, **kwargs):
+            raise RuntimeError("docker failed")
+
+    errors = []
+
+    class Trace:
+        @contextmanager
+        def start_as_current_observation(self, **kwargs):
+            try:
+                yield None
+            except BaseException as exc:
+                errors.append(type(exc).__name__)
+                raise
+
+    adapter = ExecutionAdapter(SubmitDocker(), tmp_path / "shell.jsonl", Trace())
     with pytest.raises(Submitted):
         adapter.execute({"command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"})
     result = json.loads(adapter.log.read_text())["result"]
     assert result == {"returncode": 0, "output": "finished", "submitted": True}
+    assert errors == []  # A normal finish is not reported to Langfuse as an error.
+    with pytest.raises(RuntimeError):
+        ExecutionAdapter(FailDocker(), tmp_path / "failed.jsonl", Trace()).execute({"command": "ls"})
+    assert errors == ["RuntimeError"]
 
 
 def test_cleanup_when_container_constructor_fails(tmp_path, monkeypatch):

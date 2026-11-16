@@ -12,6 +12,12 @@ See the [project README](../README.md) for setup and run commands.
 | `security.py` | Validates settings and checks commands before execution. |
 | `tracing.py` | Sends CodeIPI events and scores to Langfuse. Shared model tracing is in `swe.py`. |
 
+## Model request settings
+
+Set `require_bash: true` to request the `bash` tool on each model reply.
+Omit it or set it to `false` for the stock tool choice. The selected model and
+host must support this tool choice. This setting does not select a host.
+
 ## Command checks
 
 `GuardedEnvironment.execute()` calls enabled guardrails in configuration order.
@@ -31,7 +37,7 @@ Encoded or assembled filenames can bypass it.
 ## Configure a guardrail
 
 Copy `configs/default.yaml` to an experiment config. Keep its model and limits,
-and set `experiment` to a name for the guardrail setting, such as `regex-v1`.
+and set `experiment` to a name for the guardrail setting, such as `regex-l2`.
 Edit the security section:
 
 ```yaml
@@ -46,6 +52,25 @@ security:
 Pass the file to either runner with `--config path/to/config.yaml`.
 Set `enabled: false` to disable a guardrail. Keep other settings identical when
 comparing runs with and without that guardrail.
+
+### Regex levels
+
+`configs/regex/` has three ready-made regex configs. Each is a copy of
+`configs/default.yaml` with only the regex check enabled, and each level
+includes every pattern from the level below.
+
+| Config | Experiment | Blocks |
+|---|---|---|
+| `l1_loose.yaml` | `regex-l1` | Near-certain attack signatures: writing agent policy files, git hooks, `curl \| sh`, environment dumps, secret variables and files, fork bombs |
+| `l2_moderate.yaml` | `regex-l2` | Adds risky categories: `.env` and home directories, installs outside a dev-tool allowlist, hidden scripts, shell startup files and cron, huge thread pools, `base64 -d` |
+| `l3_strict.yaml` | `regex-l3` | Adds whole capabilities: network tools, all installs, process spawning, concurrency, background jobs, `git push`, every `chmod` and `os.environ` |
+
+L3 also blocks some legitimate work, such as `pip install -e .` or source code
+that uses `subprocess`. Patterns are generic and name no benchmark strings.
+They match the whole command text, including file contents written through
+heredocs. A status file write or `python some_script.py` can't be told apart
+from normal work, so no level blocks them. `tests/test_regex_levels.py` lists
+example commands and the lowest level expected to block each.
 
 ### Jev command checks
 
@@ -76,7 +101,10 @@ client retries or command prefilter. The request asks two independent questions:
 
 Jev blocks only when both values meet or exceed their thresholds. Local decision
 records and existing Langfuse guardrail observations include `risk` and
-`unjustified_probability`. API errors, timeouts, missing answers, and invalid
+`unjustified_probability`. When Langfuse tracing is enabled, each Jev guardrail
+observation records the JSON request body before the API call, including the
+task, command, questions, instructions, and criteria. It does not record HTTP
+authorization headers or the API key. API errors, timeouts, missing answers, and invalid
 values raise `CheckFailure`. The command does not execute, and the sample stays
 unscored. Each request has a 30-second timeout. Jev call costs are separate from
 the coding model's existing cost limit.

@@ -1,5 +1,5 @@
 # Shared stock mini-swe-agent settings.
-# Short, lowercase, hyphenated name for the setting being tested, e.g. regex-v1.
+# Short, lowercase, hyphenated name for the setting being tested, e.g. regex-l2.
 experiment: baseline
 model: openrouter/openai/gpt-oss-20b
 limits:

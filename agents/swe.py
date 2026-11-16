@@ -10,15 +10,20 @@ from minisweagent.models.litellm_model import LitellmModel
 
 from agents.security import GuardedEnvironment, validate_checks
 
+MODEL_TIMEOUT_SECONDS = 300
+
 
 def load_config(path: str | Path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) != {"experiment", "model", "limits", "security"}:
-        raise ValueError("Config needs only experiment, model, limits, and security")
+    required = {"experiment", "model", "limits", "security"}
+    if not isinstance(data, dict) or not required <= set(data) <= required | {"require_bash"}:
+        raise ValueError("Config needs experiment, model, limits, and security, with optional require_bash")
     if not isinstance(data["experiment"], str) or not data["experiment"].strip():
         raise ValueError("experiment must be a non-empty string")
     if data["model"] is not None and not isinstance(data["model"], str):
         raise ValueError("model must be a string or null")
+    if "require_bash" in data and not isinstance(data["require_bash"], bool):
+        raise ValueError("require_bash must be a boolean")
     limits = data["limits"]
     if not isinstance(limits, dict) or set(limits) != {"steps", "seconds", "cost_usd"}:
         raise ValueError("limits needs steps, seconds, and cost_usd")
@@ -102,10 +107,22 @@ def run_swe(
     )
     calls = model_calls if model_calls is not None else []
     decisions = []
+    jev_observation = None
+
+    def trace_jev_request(body):
+        nonlocal jev_observation
+        jev_observation = trace.start_observation(
+            name="security check", as_type="guardrail", input=body,
+        )
 
     def save_decision(row):
+        nonlocal jev_observation
         decisions.append(row)
-        if row["decision"] != "execute":
+        if jev_observation:
+            jev_observation.update(output=row)
+            jev_observation.end()
+            jev_observation = None
+        elif row["decision"] != "execute":
             with observation(trace, "security check", "guardrail", input=row["action"]) as obs:
                 if obs:
                     obs.update(output=row)
@@ -115,9 +132,15 @@ def run_swe(
     guarded = GuardedEnvironment(
         env, config["security"]["checks"], save_decision,
         context={"task": task, "source": "mini-swe-agent Bash tool"},
+        on_jev_request=trace_jev_request if trace else None,
     )
+    # LiteLLM waits up to 6000 s by default. Cancel a stuck reply sooner; mini-swe-agent retries it.
+    model_kwargs = {**stock["model"].get("model_kwargs", {}), "timeout": MODEL_TIMEOUT_SECONDS}
+    if config.get("require_bash", False):
+        model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
     model = TracedModel(
-        model_name=model_name, trace=trace, calls=calls, cancelled=cancelled, **stock["model"]
+        model_name=model_name, trace=trace, calls=calls, cancelled=cancelled,
+        **{**stock["model"], "model_kwargs": model_kwargs},
     )
     agent = DefaultAgent(model, guarded, **agent_config)
     try:

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import uuid
 
+from configs.issuetrojan.local_dummy_packages import PACKAGES
 from benchmarks.issuetrojan.data import (
     ARCHIVE_SHA256,
     DATA_HASHES,
@@ -37,7 +38,12 @@ def parse_args():
     parser.add_argument(
         "--list", action="store_true", help="List selected identities without running"
     )
-    parser.add_argument("--image", default="issuetrojan-smoke:py312")
+    parser.add_argument("--image")
+    parser.add_argument(
+        "--local-dummy-packages",
+        action="store_true",
+        help="Use the opt-in image with harmless local supply-chain distributions",
+    )
     parser.add_argument("--steps", type=int)
     parser.add_argument("--seconds", type=int)
     parser.add_argument("--cost-limit", type=float)
@@ -45,6 +51,11 @@ def parse_args():
     args = parser.parse_args()
     if not args.list and args.output is None:
         parser.error("--output is required unless --list is used")
+    args.image = args.image or (
+        "issuetrojan-smoke:py312-dummy-packages"
+        if args.local_dummy_packages
+        else "issuetrojan-smoke:py312"
+    )
     return args
 
 
@@ -114,6 +125,12 @@ def main():
                 "data_sha256": DATA_HASHES,
                 "seeds": {name: asdict(seed) for name, seed in SEEDS.items()},
                 "samples": [case.sample for case in cases],
+                "local_dummy_packages": {
+                    "enabled": args.local_dummy_packages,
+                    "distributions": list(PACKAGES.values()) if args.local_dummy_packages else [],
+                    "contents": "empty metadata-only wheels" if args.local_dummy_packages else None,
+                },
+                "image": args.image,
                 "revision_policy": "Adapter choices from docs/issuetrojan-seed-revisions.md; release specifies no target commits",
                 "adaptations": [
                     "Released github_issue text supplied directly to stock mini task; no issues published",
@@ -150,6 +167,7 @@ def main():
                             model=config["model"],
                             config=config,
                             image=args.image,
+                            local_dummy_packages=args.local_dummy_packages,
                             out=args.output,
                             client=client,
                         )
