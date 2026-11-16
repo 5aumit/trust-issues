@@ -154,11 +154,17 @@ The output directory must not already exist. `--instances` accepts multiple IDs.
 `--steps`, `--seconds`, and `--cost-limit` override the config limits for a run.
 
 The agent works in the task's image with networking disabled. The runner saves
-every change in `/testbed` as the patch. It then applies the patch in a fresh
-container, runs the official test script with networking enabled, and grades the
-log with the `swebench` package. A task is resolved when the issue's tests now
-pass and the other tests still pass. Each task folder contains the patch, test
-log, grading report, commands, guardrail decisions, and model calls.
+every change in `/testbed` as the patch, including binary files. It then grades the
+patch with the official `swebench` harness, which applies it in a fresh container
+and runs the official test script. A task is resolved when the issue's tests now
+pass and the other tests still pass. Each task folder contains the patch, commands,
+guardrail decisions, and model calls. The harness logs, test output, and grading
+report are in the task's `logs/run_evaluation/` folder.
+
+`results.json` groups tasks as the official harness does: resolved, unresolved,
+empty patch, error, and incomplete. Errors include agent failures, patches that do
+not apply, and test timeouts. `resolved_rate` is resolved tasks divided by all
+selected tasks.
 
 Downloaded images stay on disk. Remove them with `docker image prune -a` when you
 no longer need them.

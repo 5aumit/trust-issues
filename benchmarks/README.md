@@ -46,5 +46,7 @@ remains unchanged and does not measure package installation.
 
 `benchmarks/swebench/data.py` loads [SWE-bench Verified](https://huggingface.co/datasets/SWE-bench/SWE-bench_Verified)
 at a fixed revision. Each task includes its Docker image and official test script.
-The runner grades test logs with the pinned `swebench` package. Grading runs in
-Python's UTF-8 mode because `swebench` opens logs with the system encoding.
+The runner grades patches with `run_instance` from the pinned `swebench` package.
+Grading runs in Python's UTF-8 mode because `swebench` reads and writes files with
+the system encoding. Files the harness writes use LF line endings so they work in
+the Linux container on Windows.
