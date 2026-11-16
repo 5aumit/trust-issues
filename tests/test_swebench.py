@@ -6,7 +6,8 @@ import pytest
 
 from agents.swe import ExecutionAdapter
 from benchmarks.swebench.data import select_instances
-from benchmarks.swebench.grade import grade
+from benchmarks.swebench import grade as grade_module
+from benchmarks.swebench.grade import grade, log_dir
 import benchmarks.swebench.runner as runner
 
 
@@ -54,20 +55,34 @@ def test_invalid_selection_rejected(filters):
         select_instances([instance("a")], **filters)
 
 
-@pytest.mark.parametrize("fix_status, resolved", [("PASSED", True), ("FAILED", False)])
-def test_official_grader_reads_utf8_logs(tmp_path, fix_status, resolved):
-    from swebench.harness.constants import END_TEST_OUTPUT, START_TEST_OUTPUT
-
+def test_grader_runs_official_harness_in_utf8_mode(tmp_path, monkeypatch):
     (tmp_path / "instance.json").write_text(json.dumps(instance()), encoding="utf-8")
-    (tmp_path / "patch.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (tmp_path / "test_output.txt").write_text(
-        f"setup output with non-ASCII text: Ý ✓\n{START_TEST_OUTPUT}\n"
-        f"{fix_status} test_a.py::test_fix\nPASSED test_a.py::test_keep\n{END_TEST_OUTPUT}\n",
-        encoding="utf-8",
-    )
-    report = grade(tmp_path)
-    assert report["resolved"] is resolved
-    assert report["patch_successfully_applied"] is True
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        report = log_dir(tmp_path, "run1", "org__repo-1") / "report.json"
+        report.parent.mkdir(parents=True)
+        report.write_text(json.dumps({"org__repo-1": {"resolved": True}}), encoding="utf-8")
+        return ok_process(command)
+
+    monkeypatch.setattr(grade_module.subprocess, "run", run)
+    assert grade(tmp_path, "run1") == {"resolved": True}
+    command, kwargs = calls[0]
+    assert command[1:5] == ["-X", "utf8", "-m", "benchmarks.swebench.grade"]
+    assert command[5:] == [str(tmp_path.resolve()), "run1"]
+    assert kwargs["cwd"] == tmp_path.resolve()
+
+
+def test_grader_returns_none_without_report(tmp_path, monkeypatch):
+    (tmp_path / "instance.json").write_text(json.dumps(instance()), encoding="utf-8")
+    monkeypatch.setattr(grade_module.subprocess, "run", ok_process)
+    assert grade(tmp_path, "run1") is None
+
+
+def test_harness_files_keep_lf_line_endings(tmp_path):
+    grade_module.write_text_with_lf(tmp_path / "eval.sh", "a\nb\n")
+    assert (tmp_path / "eval.sh").read_bytes() == b"a\nb\n"
 
 
 def test_patch_includes_all_changes_against_starting_commit(tmp_path):
@@ -85,30 +100,50 @@ def test_patch_includes_all_changes_against_starting_commit(tmp_path):
         runner.collect_patch(ExecutionAdapter(docker, tmp_path / "shell.jsonl"), "abc123")
 
 
-def test_empty_patch_is_unresolved_without_running_tests(tmp_path, monkeypatch):
+def test_empty_patch_is_unresolved_without_grading(tmp_path, monkeypatch):
     (tmp_path / "patch.diff").write_text("", encoding="utf-8")
-    monkeypatch.setattr(runner, "start_container", lambda *args: pytest.fail("started a container"))
+    monkeypatch.setattr(runner, "grade", lambda *args: pytest.fail("graded an empty patch"))
     assert runner.evaluate(instance(), tmp_path, None) == {"resolved": 0, "scoring_status": "empty_patch"}
 
 
-def test_patch_that_never_applies_is_unresolved_and_cleaned_up(tmp_path, monkeypatch):
+def test_official_report_is_scored_and_container_checked(tmp_path, monkeypatch):
     (tmp_path / "patch.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    docker = FakeDocker({"returncode": 1, "output": "error: patch failed"})
+    report = {
+        "resolved": True,
+        "tests_status": {"FAIL_TO_PASS": {"success": ["t1"], "failure": []}},
+    }
     commands = []
-
-    def run(command, **kwargs):
-        commands.append(command)
-        return ok_process(command)
-
-    monkeypatch.setattr(runner, "start_container", lambda *args: docker)
-    monkeypatch.setattr(runner.subprocess, "run", run)
+    monkeypatch.setattr(runner, "grade", lambda sample_dir, run_id: dict(report))
+    monkeypatch.setattr(runner.subprocess, "run", lambda command, **kwargs: commands.append(command) or ok_process(command))
     result = runner.evaluate(instance(), tmp_path, None)
-    assert result["resolved"] == 0 and result["scoring_status"] == "patch_failed"
-    assert docker.actions == runner.APPLY_COMMANDS
-    assert ["docker", "rm", "-f", "grading-1"] in commands
+    assert result["resolved"] == 1 and result["scoring_status"] == "scored"
+    assert result["tests"] == {"FAIL_TO_PASS": {"success": 1, "failure": 0}}
+    assert result["grading_logs"] == f"logs/run_evaluation/{result['grading_run_id']}/mini-swe-agent/org__repo-1"
+    name = f"sweb.eval.org__repo-1.{result['grading_run_id']}"
+    assert commands == [["docker", "container", "ls", "-aq", "--filter", f"name={name}"]]
     assert result["grading_cleanup"]["verified_absent"] is True
-    assert not (tmp_path / "test_output.txt").exists()
 
+
+@pytest.mark.parametrize(
+    "log_name, text, status",
+    [
+        ("run_instance.log", ">>>>> Patch Apply Failed:\nerror", "patch_failed"),
+        ("test_output.txt", "partial output\n\nTimeout error: 1800 seconds exceeded.", "test_timeout"),
+        ("run_instance.log", "Error creating container", "grading_error"),
+    ],
+)
+def test_harness_failure_reason_is_read_from_logs(tmp_path, monkeypatch, log_name, text, status):
+    (tmp_path / "patch.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    def grade_without_report(sample_dir, run_id):
+        logs = log_dir(sample_dir, run_id, "org__repo-1")
+        logs.mkdir(parents=True)
+        (logs / log_name).write_text(text, encoding="utf-8")
+
+    monkeypatch.setattr(runner, "grade", grade_without_report)
+    monkeypatch.setattr(runner.subprocess, "run", ok_process)
+    result = runner.evaluate(instance(), tmp_path, None)
+    assert result["resolved"] == 0 and result["scoring_status"] == status
 
 def test_agent_container_failure_skips_grading_and_cleans_up(tmp_path, monkeypatch):
     import minisweagent.environments.docker as docker

@@ -64,7 +64,7 @@ def main():
                     "Stock mini.yaml prompts and shared run_swe; issue text given as the task",
                     "Agent container: official image, network off, Docker resource limits",
                     "Patch: git diff of all changes in /testbed against the image's starting commit",
-                    "Grading: fresh container with network, official eval script and swebench grader",
+                    "Grading: official swebench run_instance harness; files it writes use LF line endings",
                 ],
             },
             indent=2,
