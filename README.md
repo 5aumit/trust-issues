@@ -64,9 +64,10 @@ can exceed them.
 
 OpenRouter sends each request to one of several hosts for the same model, and
 hosts differ in quality. To keep runs comparable, set `providers` to the hosts
-allowed to serve the model, such as `providers: [AkashML]`. Requests then never
-fall back to other hosts. Each task's `model-calls.json` and Langfuse trace
-record the host that served each call. Report the host with your results.
+to try, such as `providers: [AkashML]`. Requests do not fall back to other
+public hosts, but accessible private endpoints can still be eligible. Each task's
+`model-calls.json` and Langfuse trace record the host when it is returned.
+Report the host with your results.
 
 Before using a new model or host, run five quick SWE-bench tasks and check that
 some are resolved:

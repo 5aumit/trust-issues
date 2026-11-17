@@ -224,8 +224,8 @@ def run_swe(
     if config.get("providers"):
         if not model_name.startswith("openrouter/"):
             raise ValueError("providers only applies to openrouter/ models")
-        # Use only these hosts, never fall back to others, and skip hosts that lack a requested feature.
-        model_kwargs["extra_body"] = {"provider": {
+        # Prefer these hosts without public fallbacks and require support for request parameters.
+        model_kwargs["extra_body"] = {**model_kwargs.get("extra_body", {}), "provider": {
             "order": config["providers"], "allow_fallbacks": False, "require_parameters": True,
         }}
     if config.get("require_bash", False):

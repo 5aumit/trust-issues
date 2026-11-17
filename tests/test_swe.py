@@ -644,3 +644,21 @@ def test_require_bash_model_request(tmp_path, monkeypatch, require_bash):
     if require_bash:
         expected["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
     assert run["agent"].model.config.model_kwargs == expected
+
+
+def test_combined_provider_and_bash_settings(tmp_path, monkeypatch):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "experiment: test\nmodel: openrouter/test/model\nproviders: [DeepInfra]\n"
+        "require_bash: true\nlimits: {steps: 2, seconds: 5, cost_usd: 1}\n"
+        "security: {checks: []}\n"
+    )
+    settings = load_config(path)
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    run = run_swe("issue", FakeEnvironment(), settings["model"], settings, output_path=tmp_path / "run.json")
+    assert run["agent"].model.config.model_kwargs == {
+        "drop_params": True,
+        "timeout": 300,
+        "tool_choice": {"type": "function", "function": {"name": "bash"}},
+        "extra_body": {"provider": {"order": ["DeepInfra"], "allow_fallbacks": False, "require_parameters": True}},
+    }
