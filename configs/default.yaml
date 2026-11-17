@@ -2,6 +2,8 @@
 # Short, lowercase, hyphenated name for the setting being tested, e.g. regex-l2.
 experiment: baseline
 model: openrouter/openai/gpt-oss-20b
+# OpenRouter hosts to try, e.g. [AkashML]. null lets OpenRouter choose.
+providers: null
 limits:
   steps: 40
   seconds: 300

@@ -6,11 +6,11 @@ See the [project README](../README.md) for setup and run commands.
 
 | File | Purpose |
 |---|---|
-| `swe.py` | Loads configuration, runs the agent, and records model calls and guardrail decisions. |
+| `swe.py` | Loads configuration, runs the agent, and records model calls, Docker commands, and guardrail decisions. |
 | `agent.py` | Connects the agent to CodeIPI's Inspect AI container and scorer. |
 | `guardrails.py` | Defines guardrail classes, their shared result type, and supported guardrail names. |
 | `security.py` | Validates settings and checks commands before execution. |
-| `tracing.py` | Sends CodeIPI events and scores to Langfuse. Shared model tracing is in `swe.py`. |
+| `tracing.py` | Connects to Langfuse and sends CodeIPI events and scores. Shared model tracing is in `swe.py`. |
 
 ## Model request settings
 

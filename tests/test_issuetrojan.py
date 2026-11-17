@@ -7,7 +7,8 @@ import sys
 import pytest
 
 from benchmarks.issuetrojan.data import all_cases, select_cases, Case, SEEDS
-from benchmarks.issuetrojan.runner import ExecutionAdapter, score_eem
+from agents.swe import ExecutionAdapter
+from benchmarks.issuetrojan.runner import score_eem
 
 
 class FakeDocker:
