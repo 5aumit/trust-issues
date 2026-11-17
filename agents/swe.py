@@ -18,14 +18,23 @@ MODEL_TIMEOUT_SECONDS = 300
 def load_config(path: str | Path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     required = {"experiment", "model", "limits", "security"}
-    if not isinstance(data, dict) or not required <= set(data) <= required | {"require_bash"}:
-        raise ValueError("Config needs experiment, model, limits, and security, with optional require_bash")
+    if not isinstance(data, dict) or not required <= set(data) <= required | {"providers", "require_bash"}:
+        raise ValueError("Config needs experiment, model, limits, and security, with optional providers and require_bash")
     if not isinstance(data["experiment"], str) or not data["experiment"].strip():
         raise ValueError("experiment must be a non-empty string")
     if data["model"] is not None and not isinstance(data["model"], str):
         raise ValueError("model must be a string or null")
+    providers = data.setdefault("providers", None)
+    if providers is not None and (
+        not isinstance(providers, list)
+        or not providers
+        or not all(isinstance(name, str) and name.strip() for name in providers)
+        or len(set(providers)) != len(providers)
+    ):
+        raise ValueError("providers must be null or a list of unique host names")
     if "require_bash" in data and not isinstance(data["require_bash"], bool):
         raise ValueError("require_bash must be a boolean")
+
     limits = data["limits"]
     if not isinstance(limits, dict) or set(limits) != {"steps", "seconds", "cost_usd"}:
         raise ValueError("limits needs steps, seconds, and cost_usd")
@@ -148,7 +157,10 @@ class TracedModel(LitellmModel):
                         "output": usage.get("completion_tokens", 0),
                     },
                     cost_details={"total": usage["cost"]} if isinstance(usage.get("cost"), (int, float)) else None,
-                    metadata={"provider_returned_reasoning": raw.get("choices", [{}])[0].get("message", {}).get("reasoning_content")},
+                    metadata={
+                        "provider": raw.get("provider"),
+                        "provider_returned_reasoning": raw.get("choices", [{}])[0].get("message", {}).get("reasoning_content"),
+                    },
                 )
             return response
 
@@ -209,8 +221,16 @@ def run_swe(
     )
     # LiteLLM waits up to 6000 s by default. Cancel a stuck reply sooner; mini-swe-agent retries it.
     model_kwargs = {**stock["model"].get("model_kwargs", {}), "timeout": MODEL_TIMEOUT_SECONDS}
+    if config.get("providers"):
+        if not model_name.startswith("openrouter/"):
+            raise ValueError("providers only applies to openrouter/ models")
+        # Prefer these hosts without public fallbacks and require support for request parameters.
+        model_kwargs["extra_body"] = {**model_kwargs.get("extra_body", {}), "provider": {
+            "order": config["providers"], "allow_fallbacks": False, "require_parameters": True,
+        }}
     if config.get("require_bash", False):
         model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
+
     model = TracedModel(
         model_name=model_name, trace=trace, calls=calls, cancelled=cancelled,
         **{**stock["model"], "model_kwargs": model_kwargs},

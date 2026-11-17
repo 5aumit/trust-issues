@@ -231,6 +231,34 @@ def test_config_needs_experiment_name(tmp_path, experiment):
         load_config(path)
 
 
+@pytest.mark.parametrize("providers, valid", [
+    ("", True), ("providers: null", True), ("providers: [AkashML, Parasail]", True),
+    ("providers: []", False), ("providers: AkashML", False), ("providers: [AkashML, AkashML]", False), ("providers: ['']", False),
+])
+def test_config_providers_validation(tmp_path, providers, valid):
+    path = tmp_path / "config.yaml"
+    path.write_text(f"experiment: test\nmodel: test/model\n{providers}\nlimits: {{steps: 2, seconds: 5, cost_usd: 1}}\nsecurity: {{checks: []}}\n")
+    if valid:
+        assert "providers" in load_config(path)
+    else:
+        with pytest.raises(ValueError, match="providers"):
+            load_config(path)
+
+
+def test_providers_pin_openrouter_hosts(tmp_path, monkeypatch):
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    pinned = {**config(), "providers": ["AkashML"]}
+    run = run_swe("issue", FakeEnvironment(), "openrouter/openai/gpt-oss-20b", pinned, output_path=tmp_path / "trajectory.json")
+    assert run["agent"].model.config.model_kwargs["extra_body"] == {
+        "provider": {"order": ["AkashML"], "allow_fallbacks": False, "require_parameters": True}
+    }
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    unpinned = run_swe("issue", FakeEnvironment(), "openrouter/openai/gpt-oss-20b", config(), output_path=tmp_path / "unpinned.json")
+    assert "extra_body" not in unpinned["agent"].model.config.model_kwargs
+    with pytest.raises(ValueError, match="openrouter"):
+        run_swe("issue", FakeEnvironment(), "test/model", pinned, output_path=tmp_path / "other.json")
+
+
 def test_inspect_path_uses_workspace_and_preserves_scorer_inputs(monkeypatch):
     model_commands(monkeypatch, ["forbidden", "allowed", "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
     class Sandbox:
@@ -616,3 +644,21 @@ def test_require_bash_model_request(tmp_path, monkeypatch, require_bash):
     if require_bash:
         expected["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
     assert run["agent"].model.config.model_kwargs == expected
+
+
+def test_combined_provider_and_bash_settings(tmp_path, monkeypatch):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "experiment: test\nmodel: openrouter/test/model\nproviders: [DeepInfra]\n"
+        "require_bash: true\nlimits: {steps: 2, seconds: 5, cost_usd: 1}\n"
+        "security: {checks: []}\n"
+    )
+    settings = load_config(path)
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    run = run_swe("issue", FakeEnvironment(), settings["model"], settings, output_path=tmp_path / "run.json")
+    assert run["agent"].model.config.model_kwargs == {
+        "drop_params": True,
+        "timeout": 300,
+        "tool_choice": {"type": "function", "function": {"name": "bash"}},
+        "extra_body": {"provider": {"order": ["DeepInfra"], "allow_fallbacks": False, "require_parameters": True}},
+    }

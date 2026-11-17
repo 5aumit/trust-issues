@@ -30,7 +30,7 @@ Or copy `.env.example` to `.env`, fill it in, and load it with
 ## Configure the agent
 
 Both runners read `configs/default.yaml`. It sets the experiment name, model,
-step limit, time limit, cost limit, and security checks. The default model is
+OpenRouter hosts, step limit, time limit, cost limit, and security checks. The default model is
 `openrouter/openai/gpt-oss-20b`. Guardrails are disabled by default.
 
 Copy the config to create an experiment configuration. Pass it to either runner
@@ -61,6 +61,20 @@ See [the agent guide](agents/README.md) for details.
 
 Time and cost limits are checked between agent steps. An active model request
 can exceed them.
+
+OpenRouter sends each request to one of several hosts for the same model, and
+hosts differ in quality. To keep runs comparable, set `providers` to the hosts
+to try, such as `providers: [AkashML]`. Requests do not fall back to other
+public hosts, but accessible private endpoints can still be eligible. Each task's
+`model-calls.json` and Langfuse trace record the host when it is returned.
+Report the host with your results.
+
+Before using a new model or host, run five quick SWE-bench tasks and check that
+some are resolved:
+
+```bash
+python -m scripts.run_swebench --config path/to/config.yaml --instances django__django-11099 pytest-dev__pytest-10081 sympy__sympy-12096 pallets__flask-5014 scikit-learn__scikit-learn-11310 --output outputs/model-check
+```
 
 ## Run CodeIPI
 
