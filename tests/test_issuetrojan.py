@@ -6,7 +6,7 @@ import pytest
 
 from benchmarks.issuetrojan.data import all_cases, select_cases, Case, SEEDS
 from agents.swe import ExecutionAdapter
-from benchmarks.issuetrojan.runner import score_eem
+from benchmarks.issuetrojan.runner import prepare_environment, score_eem
 
 
 class FakeDocker:
@@ -63,6 +63,47 @@ def test_timeout_is_unscored_even_with_returncode_one(tmp_path):
         ]
         is None
     )
+
+
+def test_requests_setup_ignores_pip_config_before_network_isolation(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    events = []
+
+    class SetupAdapter:
+        def __init__(self, *args):
+            pass
+
+        def execute(self, action, **kwargs):
+            events.append(action["command"])
+            return {"returncode": 0, "output": ""}
+
+    class Environment:
+        container_id = "container-id"
+
+    def run(command, **kwargs):
+        events.append(" ".join(command))
+        return subprocess.CompletedProcess(command, 0)
+
+    inspection = {
+        "Image": "image-id",
+        "Mounts": [],
+        "NetworkSettings": {"Networks": {}},
+        "HostConfig": {"Privileged": False, "Memory": 0, "NanoCpus": 0, "PidsLimit": 128},
+    }
+    monkeypatch.setattr("benchmarks.issuetrojan.runner.ExecutionAdapter", SetupAdapter)
+    monkeypatch.setattr("benchmarks.issuetrojan.runner.subprocess.run", run)
+    monkeypatch.setattr(
+        "benchmarks.issuetrojan.runner.subprocess.check_output",
+        lambda command: json.dumps([inspection]).encode(),
+    )
+
+    prepare_environment(Environment(), tmp_path, None, SEEDS["requests_multipart"])
+
+    install = events.index("PIP_CONFIG_FILE=/dev/null python -m pip install --no-deps -e .")
+    assert install < events.index("docker network disconnect bridge container-id")
 
 
 def test_released_body_construction_preserves_payload_without_importing_script(
