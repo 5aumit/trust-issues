@@ -1,6 +1,7 @@
 # Benchmarks
 
-This directory holds downloaded benchmark data and our IssueTrojanBench adapter.
+This directory holds downloaded benchmark data and our IssueTrojanBench and
+SWE-bench adapters.
 See the [project README](../README.md) for setup, run commands, and scoring limits.
 
 | Path | Contents |
@@ -8,6 +9,7 @@ See the [project README](../README.md) for setup, run commands, and scoring limi
 | `inspect_evals/` | Downloaded CodeIPI checkout. Git ignores this directory. |
 | `issuetrojan-data/issuetrojanbench/` | Downloaded IssueTrojanBench release. Git ignores this directory. |
 | `issuetrojan/` | Our IssueTrojanBench data loader and container runner. |
+| `swebench/` | Our SWE-bench Verified data loader, container runner, and grading step. |
 
 ## CodeIPI
 
@@ -39,3 +41,12 @@ payloads. See the project README for the build command and runner flag. The
 runner records this option and, for supply-chain samples, checks installed
 distribution metadata before and after the agent run. The released EEM score
 remains unchanged and does not measure package installation.
+
+## SWE-bench Verified
+
+`benchmarks/swebench/data.py` loads [SWE-bench Verified](https://huggingface.co/datasets/SWE-bench/SWE-bench_Verified)
+at a fixed revision. Each task includes its Docker image and official test script.
+The runner grades patches with `run_instance` from the pinned `swebench` package.
+Grading runs in Python's UTF-8 mode because `swebench` reads and writes files with
+the system encoding. Files the harness writes use LF line endings so they work in
+the Linux container on Windows.

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+import json
 from pathlib import Path
+import time
 
 import yaml
 from minisweagent.models.litellm_model import LitellmModel
@@ -45,8 +47,79 @@ def load_config(path: str | Path):
     return data
 
 
+def configure(*, path, model=None, steps=None, seconds=None, cost_limit=None):
+    config = load_config(path)
+    config["model"] = model or config["model"]
+    if not config["model"]:
+        raise ValueError("Set model in --config or pass --model")
+    for name, value in (
+        ("steps", steps),
+        ("seconds", seconds),
+        ("cost_usd", cost_limit),
+    ):
+        if value is not None:
+            if value <= 0:
+                raise ValueError("Steps, seconds, and cost limit must be positive")
+            config["limits"][name] = value
+    return config
+
+
 def observation(parent, name, kind, **kwargs):
     return parent.start_as_current_observation(name=name, as_type=kind, **kwargs) if parent else nullcontext(None)
+
+
+class ExecutionAdapter:
+    """Record Docker commands from setup, the agent, and evaluation."""
+
+    def __init__(self, env, log: Path, trace=None):
+        self.env, self.log, self.trace = env, log, trace
+        self.phase = "setup"
+
+    def __getattr__(self, name):
+        return getattr(self.env, name)
+
+    def execute(self, action: dict, **kwargs):
+        from minisweagent.exceptions import Submitted
+
+        started = time.monotonic()
+        submitted = None
+        with observation(
+            self.trace, "shell", "tool", input=action, metadata={"phase": self.phase}
+        ) as obs:
+            try:
+                result = self.env.execute(action, **kwargs)
+            except Submitted as exc:
+                # mini-swe-agent signals a normal finish with an exception. Raise it after the
+                # observation closes so Langfuse does not mark this step and its parents as errors.
+                submitted = exc
+                result = {
+                    "returncode": 0,
+                    "output": exc.messages[0]["content"],
+                    "submitted": True,
+                }
+            except Exception as exc:
+                self._record(action, {"error_type": type(exc).__name__}, started, obs)
+                raise
+            self._record(action, result, started, obs)
+        if submitted:
+            raise submitted
+        return result
+
+    def _record(self, action, result, started, obs):
+        row = {
+            "phase": self.phase,
+            "action": action,
+            "result": result,
+            "runtime_s": time.monotonic() - started,
+        }
+        with self.log.open("a") as stream:
+            stream.write(json.dumps(row) + "\n")
+        if obs:
+            obs.update(output=result)
+        print(
+            f"[{self.phase}] {action.get('command', '')[:180]} => {result.get('returncode', 'error')}",
+            flush=True,
+        )
 
 
 class TracedModel(LitellmModel):

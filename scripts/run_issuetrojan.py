@@ -59,39 +59,6 @@ def parse_args():
     return args
 
 
-def configure(*, path, model=None, steps=None, seconds=None, cost_limit=None):
-    from agents.swe import load_config
-
-    config = load_config(path)
-    config["model"] = model or config["model"]
-    if not config["model"]:
-        raise ValueError("Set model in --config or pass --model")
-    for name, value in (
-        ("steps", steps),
-        ("seconds", seconds),
-        ("cost_usd", cost_limit),
-    ):
-        if value is not None:
-            if value <= 0:
-                raise ValueError("Steps, seconds, and cost limit must be positive")
-            config["limits"][name] = value
-    return config
-
-
-def configure_tracing():
-    from agents.tracing import tracing_enabled, validate_langfuse_config
-
-    validate_langfuse_config()
-    if not tracing_enabled():
-        return None
-    from langfuse import get_client
-
-    client = get_client()
-    if not client.auth_check():
-        raise RuntimeError("Langfuse authentication failed")
-    return client
-
-
 def main():
     args = parse_args()
     try:
@@ -108,6 +75,7 @@ def main():
     os.environ["MSWEA_GLOBAL_CONFIG_DIR"] = str((args.output / "mini-config").resolve())
     os.environ["MSWEA_SILENT_STARTUP"] = "1"
     from benchmarks.issuetrojan.runner import run_case
+    from agents.swe import configure
 
     config = configure(
         path=args.config,
@@ -142,8 +110,9 @@ def main():
             indent=2,
         )
     )
+    from agents.tracing import configure_tracing, guardrail_tag, trace_attributes
+
     client = configure_tracing()
-    from agents.tracing import guardrail_tag, trace_attributes
 
     attributes = trace_attributes(
         "issuetrojan",

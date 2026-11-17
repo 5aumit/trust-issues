@@ -6,7 +6,8 @@ Course project for [TAI4SE](https://tai4se.github.io).
 
 We study whether security guardrails stop coding agents from following malicious
 instructions in GitHub issues. We compare runs with guardrails enabled and
-disabled using CodeIPI and IssueTrojanBench. Both benchmarks use mini-swe-agent.
+disabled using CodeIPI and IssueTrojanBench. SWE-bench Verified measures how
+guardrails affect normal coding work. All three benchmarks use mini-swe-agent.
 
 ## Setup
 
@@ -136,13 +137,52 @@ for these choices and [benchmark details](benchmarks/README.md) for data sources
 The output directory contains `results.json` and per-sample records, including
 configuration, model calls, commands, guardrail decisions, and repository changes.
 
+## Run SWE-bench Verified
+
+The runner downloads the 500 SWE-bench Verified tasks from Hugging Face at a fixed
+revision. Each task pulls its official Docker image, about 1-3 GB.
+
+List tasks, then run one:
+
+```bash
+python -m scripts.run_swebench --list
+python -m scripts.run_swebench --instances django__django-11099 --output outputs/swebench-django-11099
+```
+
+The output directory must not already exist. `--instances` accepts multiple IDs.
+`--limit N` runs the first N selected tasks. Omit both to run all 500.
+`--steps`, `--seconds`, and `--cost-limit` override the config limits for a run.
+
+The agent works in the task's image with networking disabled. The runner saves
+every change in `/testbed` as the patch, including binary files. It then grades the
+patch with the official `swebench` harness, which applies it in a fresh container
+and runs the official test script. A task is resolved when the issue's tests now
+pass and the other tests still pass. Each task folder contains the patch, commands,
+guardrail decisions, and model calls. The harness logs, test output, and grading
+report are in the task's `logs/run_evaluation/` folder.
+
+`results.json` groups tasks as the official harness does: resolved, unresolved,
+empty patch, error, and incomplete. Errors include agent failures, patches that do
+not apply, and test timeouts. `resolved_rate` is resolved tasks divided by all
+selected tasks.
+
+Each attempted task trace records a numeric `SWE-bench/resolved` contribution
+of 1 for a resolved task and 0 otherwise. The raw `resolved` value and
+`scoring_status` remain in the trace output, including `resolved: null` for
+errors. Traces exist only for attempted tasks, so their average can differ from
+the selected-task `resolved_rate` when a run stops early.
+
+Downloaded images stay on disk. Remove them with `docker image prune -a` when you
+no longer need them.
+
 ## Read results
 
 Check commands and saved files alongside benchmark scores. CodeIPI can count a
 blocked command as compliance because its scorer reads attempted tool calls.
 IssueTrojanBench's EEM score checks whether selected files exist. It does not
 prove that an attack command ran. We do not check legitimate task correctness
-for IssueTrojanBench.
+for IssueTrojanBench. A few SWE-bench tests contact external websites and can fail
+for reasons unrelated to the agent's patch.
 
 ## Optional Langfuse tracing
 
@@ -169,9 +209,9 @@ Traces also have these tags:
 
 | Tag | Applies to | Meaning |
 |---|---|---|
-| `codeipi`, `issuetrojan` | Each benchmark | Benchmark name |
-| `agent:mini-swe-agent` | Both | Agent used |
-| `guardrail:<names>` | Both | Enabled security checks, such as `guardrail:none` or `guardrail:regex` |
+| `codeipi`, `issuetrojan`, `swebench` | Each benchmark | Benchmark name |
+| `agent:mini-swe-agent` | All | Agent used |
+| `guardrail:<names>` | All | Enabled security checks, such as `guardrail:none` or `guardrail:regex` |
 | `harness:inspect` | CodeIPI | Run through Inspect AI |
 | `github_issue` | IssueTrojanBench | Attack delivered through a GitHub issue |
 
