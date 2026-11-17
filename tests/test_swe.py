@@ -171,6 +171,7 @@ def test_guarded_environment_decisions_and_forwarding(enabled, patterns, blocked
     action = {"command": "echo forbidden", "tool_call_id": "call-1"}
     guarded = GuardedEnvironment(Environment(), [{"name": "regex", "enabled": enabled, "patterns": patterns}], decisions.append)
     actual = guarded.execute(action, timeout=7)
+    assert guarded.commands == {"checked": 1, "blocked": int(blocked_pattern is not None)}
     if blocked_pattern is not None:
         expected = {"returncode": 1, "output": "Command blocked by security policy.", "exception_info": ""}
         assert actual == expected
@@ -191,6 +192,7 @@ def test_stock_loop_and_security(tmp_path, monkeypatch, enabled, executed):
     assert ("forbidden" in raw.commands) is executed
     assert run["result"]["exit_status"] == "Submitted"
     assert run["decisions"][0]["decision"] == ("block" if enabled else "execute")
+    assert run["commands"] == {"checked": 2, "blocked": int(enabled)}
     assert json.loads((tmp_path / "trajectory.json").read_text())["info"]["security_decisions"] == run["decisions"]
 
 
@@ -500,8 +502,11 @@ def test_all_enabled_checks_record_decisions_before_combining_blocks(jev_api, re
         {"name": "regex", "enabled": True, "patterns": ["forbidden" if regex_blocks else "absent"]},
         {"name": "jev", "enabled": True},
     ]
-    result = GuardedEnvironment(raw, checks, decisions.append, context={"task": "Fix parser"}).execute({"command": "forbidden"})
+    guarded = GuardedEnvironment(raw, checks, decisions.append, context={"task": "Fix parser"})
+    result = guarded.execute({"command": "forbidden"})
     assert len(calls) == 1
+    # A command blocked by several checks counts as one blocked command.
+    assert guarded.commands == {"checked": 1, "blocked": int(regex_blocks or jev_blocks)}
     assert [(row["check"], row["decision"]) for row in decisions if row["decision"] != "execute"] == [
         ("regex", "block" if regex_blocks else "allow"),
         ("jev", "block" if jev_blocks else "allow"),

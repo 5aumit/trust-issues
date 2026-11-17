@@ -30,6 +30,10 @@ Every block returns `Command blocked by security policy.` to the agent.
 Matched patterns and other details stay in local records and optional Langfuse
 traces. A guardrail error raises `CheckFailure` and leaves the sample unscored.
 
+`GuardedEnvironment.commands` counts the commands it checked and the commands
+that at least one guardrail blocked. A command blocked by several guardrails
+counts once. `run_swe` returns these counts as `commands`.
+
 Checks apply only before agent commands. They do not check tool results,
 benchmark setup, or scoring commands. The regex guardrail checks command text.
 Encoded or assembled filenames can bypass it.

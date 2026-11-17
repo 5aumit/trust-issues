@@ -56,6 +56,8 @@ class GuardedEnvironment:
         self.context = context
         self.on_jev_request = on_jev_request
         self.error = None
+        # Commands seen by the checks, and commands blocked by at least one check.
+        self.commands = {"checked": 0, "blocked": 0}
 
     def __getattr__(self, name):
         return getattr(self.env, name)
@@ -63,6 +65,7 @@ class GuardedEnvironment:
     def execute(self, action: dict, **kwargs):
         command = action.get("command", "")
         blocked = False
+        self.commands["checked"] += 1
         try:
             for check in self.checks:
                 if not check["enabled"]:
@@ -96,6 +99,7 @@ class GuardedEnvironment:
             self.record({"action": action, "decision": "error", "error_type": type(exc).__name__})
             raise self.error from None
         if blocked:
+            self.commands["blocked"] += 1
             return _BLOCKED_RESULT.copy()
         self.record({"action": action, "decision": "execute"})
         return self.env.execute(action, **kwargs)
