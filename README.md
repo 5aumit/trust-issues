@@ -166,6 +166,12 @@ empty patch, error, and incomplete. Errors include agent failures, patches that 
 not apply, and test timeouts. `resolved_rate` is resolved tasks divided by all
 selected tasks.
 
+Each attempted task trace records a numeric `SWE-bench/resolved` contribution
+of 1 for a resolved task and 0 otherwise. The raw `resolved` value and
+`scoring_status` remain in the trace output, including `resolved: null` for
+errors. Traces exist only for attempted tasks, so their average can differ from
+the selected-task `resolved_rate` when a run stops early.
+
 Downloaded images stay on disk. Remove them with `docker image prune -a` when you
 no longer need them.
 

@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import subprocess
 
@@ -168,6 +169,100 @@ def test_agent_container_failure_skips_grading_and_cleans_up(tmp_path, monkeypat
     assert result["cleanup"]["verified_absent"] is True
     assert result["resolved"] is None
     assert result["infrastructure_error"] == "RuntimeError"
+
+
+class FakeTrace:
+    trace_id = "trace-1"
+
+    def __init__(self):
+        self.output = None
+        self.scores = []
+
+    def update(self, **kwargs):
+        self.output = kwargs.get("output")
+
+    def score_trace(self, **kwargs):
+        self.scores.append(kwargs)
+
+
+class FakeClient:
+    def __init__(self):
+        self.traces = []
+
+    def get_trace_url(self, trace_id):
+        return f"https://langfuse.test/trace/{trace_id}"
+
+
+def test_run_instance_resolved_score_matches_report_for_all_outcomes(tmp_path, monkeypatch):
+    import types
+
+    root = FakeTrace()
+    client = FakeClient()
+    client.traces.append(root)
+
+    @contextmanager
+    def fake_observation(parent, *args, **kwargs):
+        yield root if parent is client else FakeTrace()
+
+    monkeypatch.setattr(runner, "observation", fake_observation)
+    monkeypatch.setattr(runner, "start_commit", lambda adapter: "abc123")
+    monkeypatch.setattr(runner, "collect_patch", lambda adapter, commit: "patch")
+    monkeypatch.setattr(runner, "start_container", lambda *args: types.SimpleNamespace(container_id="agent-1"))
+    monkeypatch.setattr(runner, "remove_container", lambda *args: {"verified_absent": True})
+    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: {"agent": None, "result": {"exit_status": "submitted"}})
+
+    cases = [
+        ("resolved", {"resolved": 1, "scoring_status": "scored"}, 1),
+        ("unresolved", {"resolved": 0, "scoring_status": "scored"}, 0),
+        ("empty", {"resolved": 0, "scoring_status": "empty_patch"}, 0),
+        ("grading_error", RuntimeError("grader failed"), 0),
+    ]
+    results = []
+    for name, evaluation, contribution in cases:
+        if isinstance(evaluation, Exception):
+            monkeypatch.setattr(runner, "evaluate", lambda *args: (_ for _ in ()).throw(evaluation))
+        else:
+            monkeypatch.setattr(runner, "evaluate", lambda *args, _result=evaluation: _result)
+        result = runner.run_instance(instance(name), model="unused", config={}, out=tmp_path, client=client)
+        results.append(result)
+        assert result["resolved_metric_contribution"] == contribution
+        assert root.scores[-1] == {"name": "SWE-bench/resolved", "value": contribution}
+        assert root.output["resolved"] == result["resolved"]
+        if name == "grading_error":
+            assert result["resolved"] is None
+            assert result["scoring_status"] == "grading_error"
+            assert result["infrastructure_error"] == "RuntimeError"
+
+    # A startup failure keeps its raw result and error category, but contributes zero.
+    def fail_start(*args):
+        raise RuntimeError("startup failed")
+
+    monkeypatch.setattr(runner, "start_container", fail_start)
+    failed = runner.run_instance(instance("startup_error"), model="unused", config={}, out=tmp_path, client=client)
+    results.append(failed)
+    assert failed["resolved"] is None
+    assert failed["scoring_status"] == "not_reached"
+    assert failed["infrastructure_error"] == "RuntimeError"
+    assert failed["resolved_metric_contribution"] == 0
+    assert root.output["resolved"] is None
+    assert root.output["infrastructure_error"] == "RuntimeError"
+    assert root.scores[-1]["value"] == 0
+    report = runner.run_report([row["instance_id"] for row in results], results)
+    assert sum(score["value"] for score in root.scores) / len(root.scores) == report["resolved_rate"]
+
+
+def test_run_instance_without_tracing_still_records_metric_contribution(tmp_path, monkeypatch):
+    import types
+
+    monkeypatch.setattr(runner, "start_container", lambda *args: types.SimpleNamespace(container_id="agent-1"))
+    monkeypatch.setattr(runner, "start_commit", lambda adapter: "abc123")
+    monkeypatch.setattr(runner, "collect_patch", lambda adapter, commit: "patch")
+    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: {"agent": None, "result": {"exit_status": "submitted"}})
+    monkeypatch.setattr(runner, "evaluate", lambda *args: {"resolved": 1, "scoring_status": "scored"})
+    monkeypatch.setattr(runner, "remove_container", lambda *args: {"verified_absent": True})
+    result = runner.run_instance(instance(), model="unused", config={}, out=tmp_path, client=None)
+    assert result["resolved"] == 1
+    assert result["resolved_metric_contribution"] == 1
 
 
 def test_run_report_uses_every_selected_task():

@@ -241,10 +241,10 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
             for key in ("prompt_tokens", "completion_tokens")
         }
         (sample_dir / "model-calls.json").write_text(json.dumps(model_calls, indent=2))
+        summary["resolved_metric_contribution"] = int(_is_resolved_category(summary))
         if root:
             root.update(output=summary)
-            if summary["resolved"] is not None:
-                root.score_trace(name="SWE-bench/resolved", value=summary["resolved"])
+            root.score_trace(name="SWE-bench/resolved", value=summary["resolved_metric_contribution"])
             summary["langfuse_url"] = client.get_trace_url(trace_id=root.trace_id)
     (sample_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary), flush=True)
@@ -265,7 +265,7 @@ def run_report(instance_ids: list[str], results: list[dict]) -> dict:
         elif status == "empty_patch":
             group = "empty_patch"
         else:
-            group = "resolved" if row["resolved"] else "unresolved"
+            group = "resolved" if _is_resolved_category(row) else "unresolved"
         groups[group].append(row["instance_id"])
     finished = {row["instance_id"] for row in results}
     groups["incomplete"] = [instance_id for instance_id in instance_ids if instance_id not in finished]
@@ -275,3 +275,12 @@ def run_report(instance_ids: list[str], results: list[dict]) -> dict:
         "resolved_rate": len(groups["resolved"]) / len(instance_ids),
         **{f"{group}_ids": ids for group, ids in groups.items()},
     }
+
+
+def _is_resolved_category(row: dict) -> bool:
+    """Match the resolved group used by run_report for one attempted task."""
+    return (
+        not row.get("infrastructure_error")
+        and row.get("scoring_status") == "scored"
+        and bool(row.get("resolved"))
+    )
