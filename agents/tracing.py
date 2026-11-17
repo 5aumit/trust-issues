@@ -33,6 +33,18 @@ def validate_langfuse_config(environ: dict[str, str] | None = None) -> None:
         raise ValueError("Langfuse tracing is enabled but required settings are missing: " + ", ".join(missing))
 
 
+def configure_tracing():
+    validate_langfuse_config()
+    if not tracing_enabled():
+        return None
+    from langfuse import get_client
+
+    client = get_client()
+    if not client.auth_check():
+        raise RuntimeError("Langfuse authentication failed")
+    return client
+
+
 def trace_attributes(benchmark: str, model: str, experiment: str, run_id: str, tags: list[str]) -> dict:
     """Session and tags shared by every benchmark trace."""
     model = model.rsplit("/", 1)[-1]

@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 import subprocess
 import time
+import uuid
 
 from agents.security import CheckFailure
-from agents.swe import observation, run_swe
-from benchmarks.issuetrojan.runner import ExecutionAdapter
+from agents.swe import ExecutionAdapter, observation, run_swe
 
-from .grade import grade
+from .grade import grade, log_dir
 
 # Shell settings from mini-swe-agent's SWE-bench config. BASH_ENV runs the image's
 # `conda activate testbed` in non-login shells.
@@ -31,13 +31,6 @@ AGENT_RUN_ARGS = [
     "--memory=4g",
     "--cpus=2",
 ]
-# Same order as the official harness: strict apply, then partial apply, then fuzzy.
-APPLY_COMMANDS = [
-    "git apply --verbose /tmp/patch.diff",
-    "git apply --verbose --reject /tmp/patch.diff",
-    "patch --batch --fuzz=5 -p1 -i /tmp/patch.diff",
-]
-EVAL_TIMEOUT = 1800
 
 
 def start_container(image: str, cidfile: Path, run_args: list[str]):
@@ -88,9 +81,12 @@ def start_commit(adapter: ExecutionAdapter) -> str:
 
 
 def collect_patch(adapter: ExecutionAdapter, commit: str) -> str:
-    """Return every change the agent made relative to the starting commit."""
+    """Return the agent's changes relative to the starting commit.
+
+    Binary changes are kept. File permission changes and ignored files are not included.
+    """
     result = adapter.execute(
-        {"command": f"git -c core.fileMode=false add -A && git -c core.fileMode=false diff --cached --text {commit}"},
+        {"command": f"git -c core.fileMode=false add -A && git -c core.fileMode=false diff --cached --binary {commit}"},
         timeout=120,
     )
     if result["returncode"] or result.get("exception_info"):
@@ -98,52 +94,53 @@ def collect_patch(adapter: ExecutionAdapter, commit: str) -> str:
     return result["output"]
 
 
+def grading_cleanup(instance_id: str, run_id: str) -> dict:
+    """Check that the official harness removed its grading container."""
+    name = f"sweb.eval.{instance_id.lower()}.{run_id}"
+    remaining = subprocess.run(
+        ["docker", "container", "ls", "-aq", "--filter", f"name={name}"],
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "container_name": name,
+        "verified_absent": remaining.returncode == 0 and not remaining.stdout.strip(),
+    }
+
+
+def failure_status(logs: Path) -> str:
+    """Read why the official harness could not grade the patch."""
+    from swebench.harness.constants import APPLY_PATCH_FAIL, LOG_INSTANCE, LOG_TEST_OUTPUT
+
+    def read(name):
+        path = logs / name
+        return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+
+    if APPLY_PATCH_FAIL in read(LOG_INSTANCE):
+        return "patch_failed"
+    if "Timeout error:" in read(LOG_TEST_OUTPUT):
+        return "test_timeout"
+    return "grading_error"
+
+
 def evaluate(instance: dict, sample_dir: Path, trace) -> dict:
-    """Apply the patch in a fresh container, run the official tests, and grade the log."""
+    """Grade the patch with the official SWE-bench harness."""
     patch = (sample_dir / "patch.diff").read_text(encoding="utf-8")
     if not patch.strip():
         return {"resolved": 0, "scoring_status": "empty_patch"}
-    (sample_dir / "eval.sh").write_text(instance["eval_script"], encoding="utf-8", newline="\n")
-    cidfile = (sample_dir / "grading.cid").resolve()
-    env = None
-    outcome = {}
-    try:
-        env = start_container(instance["image"], cidfile, [])
-        adapter = ExecutionAdapter(env, sample_dir / "shell.jsonl", trace)
-        adapter.phase = "grading"
-        for name in ("patch.diff", "eval.sh"):
-            subprocess.run(
-                ["docker", "cp", str(sample_dir / name), f"{env.container_id}:/tmp/{name}"],
-                check=True,
-                capture_output=True,
-            )
-        if not any(
-            adapter.execute({"command": command}, timeout=120)["returncode"] == 0
-            for command in APPLY_COMMANDS
-        ):
-            outcome = {"resolved": 0, "scoring_status": "patch_failed"}
-        else:
-            with observation(trace, "run tests", "tool", input={"command": "/bin/bash /tmp/eval.sh"}) as obs:
-                try:
-                    tests = subprocess.run(
-                        ["docker", "exec", env.container_id, "/bin/bash", "/tmp/eval.sh"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        timeout=EVAL_TIMEOUT,
-                    )
-                    (sample_dir / "test_output.txt").write_text(
-                        tests.stdout.decode("utf-8", errors="replace"), encoding="utf-8"
-                    )
-                    if obs:
-                        obs.update(output={"returncode": tests.returncode})
-                except subprocess.TimeoutExpired:
-                    outcome = {"resolved": 0, "scoring_status": "test_timeout"}
-    finally:
-        outcome["grading_cleanup"] = remove_container(env, cidfile)
-    if "scoring_status" in outcome:
-        return outcome
-    report = grade(sample_dir)
-    (sample_dir / "report.json").write_text(json.dumps(report, indent=2))
+    run_id = uuid.uuid4().hex[:12]
+    logs = log_dir(sample_dir, run_id, instance["instance_id"])
+    with observation(trace, "official grading", "tool", input={"run_id": run_id}) as obs:
+        report = grade(sample_dir, run_id)
+        if obs:
+            obs.update(output={"report": report})
+    outcome = {
+        "grading_run_id": run_id,
+        "grading_logs": logs.relative_to(sample_dir).as_posix(),
+        "grading_cleanup": grading_cleanup(instance["instance_id"], run_id),
+    }
+    if report is None:
+        return {**outcome, "resolved": 0, "scoring_status": failure_status(logs)}
     tests_status = report.pop("tests_status", {})
     return {
         **outcome,
@@ -244,11 +241,46 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
             for key in ("prompt_tokens", "completion_tokens")
         }
         (sample_dir / "model-calls.json").write_text(json.dumps(model_calls, indent=2))
+        summary["resolved_metric_contribution"] = int(_is_resolved_category(summary))
         if root:
             root.update(output=summary)
-            if summary["resolved"] is not None:
-                root.score_trace(name="SWE-bench/resolved", value=summary["resolved"])
+            root.score_trace(name="SWE-bench/resolved", value=summary["resolved_metric_contribution"])
             summary["langfuse_url"] = client.get_trace_url(trace_id=root.trace_id)
     (sample_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary), flush=True)
     return summary
+
+
+def run_report(instance_ids: list[str], results: list[dict]) -> dict:
+    """Group results as the official harness report does.
+
+    The resolved rate is over every selected task. Agent and grading failures are
+    errors, and tasks not yet run are incomplete.
+    """
+    groups = {"resolved": [], "unresolved": [], "empty_patch": [], "error": []}
+    for row in results:
+        status = row["scoring_status"]
+        if row.get("infrastructure_error") or status not in ("scored", "empty_patch"):
+            group = "error"
+        elif status == "empty_patch":
+            group = "empty_patch"
+        else:
+            group = "resolved" if _is_resolved_category(row) else "unresolved"
+        groups[group].append(row["instance_id"])
+    finished = {row["instance_id"] for row in results}
+    groups["incomplete"] = [instance_id for instance_id in instance_ids if instance_id not in finished]
+    return {
+        "total_instances": len(instance_ids),
+        **{f"{group}_instances": len(ids) for group, ids in groups.items()},
+        "resolved_rate": len(groups["resolved"]) / len(instance_ids),
+        **{f"{group}_ids": ids for group, ids in groups.items()},
+    }
+
+
+def _is_resolved_category(row: dict) -> bool:
+    """Match the resolved group used by run_report for one attempted task."""
+    return (
+        not row.get("infrastructure_error")
+        and row.get("scoring_status") == "scored"
+        and bool(row.get("resolved"))
+    )

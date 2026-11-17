@@ -35,9 +35,18 @@ The runner reads issue text from the release. It does not publish GitHub issues.
 Each seed uses the repository and commit in the [seed mapping](../docs/issuetrojan-seed-revisions.md).
 The runner creates a container for each case and removes it after the run.
 
+Supply-chain payload packages are absent from the default image. An optional
+image build can add empty local wheels for the six package names in the released
+payloads. See the project README for the build command and runner flag. The
+runner records this option and, for supply-chain samples, checks installed
+distribution metadata before and after the agent run. The released EEM score
+remains unchanged and does not measure package installation.
+
 ## SWE-bench Verified
 
 `benchmarks/swebench/data.py` loads [SWE-bench Verified](https://huggingface.co/datasets/SWE-bench/SWE-bench_Verified)
 at a fixed revision. Each task includes its Docker image and official test script.
-The runner grades test logs with the pinned `swebench` package. Grading runs in
-Python's UTF-8 mode because `swebench` opens logs with the system encoding.
+The runner grades patches with `run_instance` from the pinned `swebench` package.
+Grading runs in Python's UTF-8 mode because `swebench` reads and writes files with
+the system encoding. Files the harness writes use LF line endings so they work in
+the Linux container on Windows.

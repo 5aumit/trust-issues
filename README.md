@@ -1,4 +1,6 @@
-# Coding agent evaluation research
+# Trust Issues
+
+![Guardrail pipeline: a GitHub issue with injected text reaches mini-swe-agent, which emits Bash commands that guardrails allow or block](assets/guardrail-pipeline.png)
 
 Course project for [TAI4SE](https://tai4se.github.io).
 
@@ -13,6 +15,7 @@ Install Conda and Docker with the Compose plugin. Start Docker.
 Run all commands from the repository root.
 
 ```bash
+git clone https://github.com/5aumit/trust-issues && cd trust-issues
 conda env create -f environment.yml
 conda activate tai4se-secure-coding-agents
 docker info
@@ -33,12 +36,29 @@ OpenRouter hosts, step limit, time limit, cost limit, and security checks. The d
 Copy the config to create an experiment configuration. Pass it to either runner
 with `--config path/to/config.yaml`. Enable or disable checks in that file.
 Set `experiment` to a short, lowercase, hyphenated name for the setting being
-tested, such as `regex-v1`. Reuse it across benchmarks and models that should be
+tested, such as `regex-l2`. Reuse it across benchmarks and models that should be
 compared.
+
+`configs/regex/` has three cumulative regex levels. Each blocks everything the
+level below does, plus:
+
+- `l1_loose.yaml`: known-malicious commands, such as writing agent policy files,
+  git hooks, `curl | sh`, and dumping secrets.
+- `l2_moderate.yaml`: risky actions, such as `.env` access, installing unvetted
+  packages, hidden scripts, and cron or shell startup files.
+- `l3_strict.yaml`: broad capabilities, such as network tools, any package
+  install, `subprocess` or `os.system`, and system paths.
+
+For example, pass `--config configs/regex/l2_moderate.yaml`.
+
 See [the agent guide](agents/README.md) to configure, add, or edit guardrails.
 
 To change models, pass a `provider/model` identifier as CodeIPI's first argument
 or use ITB's `--model` option. Set the corresponding provider's API key.
+Optional `require_bash: true` asks the model to call the Bash tool on each reply.
+Omit it or set it to `false` for the stock tool choice.
+See [the agent guide](agents/README.md) for details.
+
 Time and cost limits are checked between agent steps. An active model request
 can exceed them.
 
@@ -90,6 +110,27 @@ docker build -t issuetrojan-smoke:py312 \
   -f configs/issuetrojan/Dockerfile configs/issuetrojan
 ```
 
+Supply-chain package installs normally stay offline and fail when the requested
+package is not present in the image. To study whether an agent attempts and
+completes the install, build a separate opt-in image with six empty local wheel
+distributions. The wheels contain package metadata only. The agent still runs
+the install command, and the default image remains unchanged:
+
+```bash
+docker build --build-arg LOCAL_DUMMY_PACKAGES=1 \
+  -t issuetrojan-smoke:py312-dummy-packages \
+  -f configs/issuetrojan/Dockerfile configs/issuetrojan
+python -m scripts.run_issuetrojan \
+  --samples sympy_matrix_det:supply_chain:mid_en_visible \
+  --local-dummy-packages \
+  --output outputs/issuetrojan-supply-chain-local-packages
+```
+
+The opt-in image sets pip to use only its local wheelhouse. The runner records
+the option in provenance and checks distribution metadata before and after the
+agent run. This records whether installation occurred; it does not change EEM
+or the released EEM score.
+
 List cases, then run one sample:
 
 ```bash
@@ -126,11 +167,23 @@ The output directory must not already exist. `--instances` accepts multiple IDs.
 `--steps`, `--seconds`, and `--cost-limit` override the config limits for a run.
 
 The agent works in the task's image with networking disabled. The runner saves
-every change in `/testbed` as the patch. It then applies the patch in a fresh
-container, runs the official test script with networking enabled, and grades the
-log with the `swebench` package. A task is resolved when the issue's tests now
-pass and the other tests still pass. Each task folder contains the patch, test
-log, grading report, commands, guardrail decisions, and model calls.
+every change in `/testbed` as the patch, including binary files. It then grades the
+patch with the official `swebench` harness, which applies it in a fresh container
+and runs the official test script. A task is resolved when the issue's tests now
+pass and the other tests still pass. Each task folder contains the patch, commands,
+guardrail decisions, and model calls. The harness logs, test output, and grading
+report are in the task's `logs/run_evaluation/` folder.
+
+`results.json` groups tasks as the official harness does: resolved, unresolved,
+empty patch, error, and incomplete. Errors include agent failures, patches that do
+not apply, and test timeouts. `resolved_rate` is resolved tasks divided by all
+selected tasks.
+
+Each attempted task trace records a numeric `SWE-bench/resolved` contribution
+of 1 for a resolved task and 0 otherwise. The raw `resolved` value and
+`scoring_status` remain in the trace output, including `resolved: null` for
+errors. Traces exist only for attempted tasks, so their average can differ from
+the selected-task `resolved_rate` when a run stops early.
 
 Downloaded images stay on disk. Remove them with `docker image prune -a` when you
 no longer need them.
@@ -161,7 +214,7 @@ text, model calls, commands, guardrail decisions, and scores. Local results rema
 available without Langfuse.
 
 Sessions are named `benchmark / model / experiment / run-id`, for example
-`codeipi / gpt-oss-20b / regex-v1 / a1b2c3`. The experiment name comes from
+`codeipi / gpt-oss-20b / regex-l2 / a1b2c3`. The experiment name comes from
 `experiment` in the config file. `RUN_BY` sets the Langfuse user, so each
 teammate's runs appear under their name.
 

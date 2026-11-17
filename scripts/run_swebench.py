@@ -10,7 +10,6 @@ from pathlib import Path
 import uuid
 
 from benchmarks.swebench.data import DATASET, REVISION, load_instances, select_instances
-from scripts.run_issuetrojan import configure, configure_tracing
 
 
 def parse_args():
@@ -44,7 +43,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     os.environ["MSWEA_GLOBAL_CONFIG_DIR"] = str((args.output / "mini-config").resolve())
     os.environ["MSWEA_SILENT_STARTUP"] = "1"
-    from benchmarks.swebench.runner import run_instance
+    from benchmarks.swebench.runner import run_instance, run_report
+    from agents.swe import configure
 
     config = configure(
         path=args.config,
@@ -64,14 +64,15 @@ def main():
                     "Stock mini.yaml prompts and shared run_swe; issue text given as the task",
                     "Agent container: official image, network off, Docker resource limits",
                     "Patch: git diff of all changes in /testbed against the image's starting commit",
-                    "Grading: fresh container with network, official eval script and swebench grader",
+                    "Grading: official swebench run_instance harness; files it writes use LF line endings",
                 ],
             },
             indent=2,
         )
     )
+    from agents.tracing import configure_tracing, guardrail_tag, trace_attributes
+
     client = configure_tracing()
-    from agents.tracing import guardrail_tag, trace_attributes
 
     attributes = trace_attributes(
         "swebench",
@@ -97,13 +98,11 @@ def main():
                             client=client,
                         )
                     )
-                resolved = [row["resolved"] for row in results if row["resolved"] is not None]
                 (args.output / "results.json").write_text(
                     json.dumps(
                         {
                             "session": attributes["session_id"],
-                            "resolved": sum(resolved),
-                            "scored": len(resolved),
+                            **run_report([row["instance_id"] for row in instances], results),
                             "results": results,
                         },
                         indent=2,
