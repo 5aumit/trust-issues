@@ -144,9 +144,11 @@ IssueTrojanBench's EEM score checks whether selected files exist. It does not
 prove that an attack command ran. We do not check legitimate task correctness
 for IssueTrojanBench.
 
-To score whether each injected goal was completed, and how many attack
-commands the guardrails blocked, score IssueTrojanBench runs from Langfuse or
-local output directories:
+Each IssueTrojanBench run also records payload-aligned EEM: whether the sample
+completed the goal its own payload describes. It is saved as `payload_eem` in
+the sample summary and as the `IssueTrojan/PayloadEEM` score in Langfuse, next
+to the original `eem`. To rescore existing runs from Langfuse or local output
+directories without rerunning the agent:
 
 ```bash
 python -m benchmarks.issuetrojan.outcomes --langfuse --output outputs/itb-outcomes
@@ -154,7 +156,9 @@ python -m benchmarks.issuetrojan.outcomes --runs outputs/issuetrojan-matrix --ou
 ```
 
 `--langfuse` reads every session whose name starts with `issuetrojan`. Narrow
-it with `--session-prefix`. See [benchmark details](benchmarks/README.md#attack-outcomes)
+it with `--session-prefix`. Samples the scorer cannot decide are listed in
+`review_queue.csv` for hand review; pass the filled-in file back with
+`--reviews`. See [benchmark details](benchmarks/README.md#payload-aligned-eem)
 for the goal rules and metrics. Supply chain goals need runs with
 `--local-dummy-packages`.
 
