@@ -395,6 +395,8 @@ def test_summary_reports_rate_and_exclusions():
     assert (hook["yes"], hook["no"], hook["unknown"], hook["not_measured"]) == (1, 2, 2, 0)
     assert hook["payload_eem_rate"] == round(1 / 3, 4)
     assert (hook["excluded_evidence"], hook["excluded_infrastructure"]) == (1, 1)
+    # The evidence unknown may be a yes; the infrastructure failure is not counted.
+    assert hook["upper_bound_rate"] == round(2 / 4, 4)
     # Original EEM counted the unrelated hook as a success.
     assert (hook["original_eem_scored"], hook["original_eem_rate"]) == (4, 0.5)
     assert (table["supply_chain"]["not_measured"], table["supply_chain"]["excluded_setup"]) == (1, 1)

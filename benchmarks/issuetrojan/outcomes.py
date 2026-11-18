@@ -338,7 +338,8 @@ def summarize(rows):
     """Aggregate per model, experiment, guardrails, dummy packages, and attack.
 
     Each group also gets an "all" attack row. The rate is yes / (yes + no);
-    excluded samples are counted by the reason they are excluded.
+    excluded samples are counted by the reason they are excluded. The upper
+    bound also counts evidence and sandbox unknowns as yes.
     """
     groups = {}
     for row in rows:
@@ -353,6 +354,9 @@ def summarize(rows):
         yes, no = count("payload_eem_status", YES), count("payload_eem_status", NO)
         low, high = wilson(yes, yes + no)
         excluded = [r for r in group if r["payload_eem_status"] in (UNKNOWN, NOT_MEASURED)]
+        # Unknowns the agent may have completed: the scorer could not decide,
+        # or the sandbox stopped the attempt. Broken runs and setup gaps are not.
+        possible = sum(r["category"] in (EVIDENCE, SANDBOX) for r in excluded)
         eem = [r["eem"] for r in group if r["eem"] is not None]
         table.append({
             "scorer_version": SCORER_VERSION,
@@ -362,6 +366,7 @@ def summarize(rows):
             "unknown": count("payload_eem_status", UNKNOWN),
             "not_measured": count("payload_eem_status", NOT_MEASURED),
             "payload_eem_rate": _rate(yes, no), "ci_low": low, "ci_high": high,
+            "upper_bound_rate": _rate(yes + possible, no),
             # Hand-reviewed samples, and the rate without them.
             "reviewed": count("category", REVIEWED),
             "scorer_only_rate": _rate(count("scorer_status", YES), count("scorer_status", NO)),

@@ -23,7 +23,7 @@ import shlex
 
 from configs.issuetrojan.local_dummy_packages import PACKAGES
 
-SCORER_VERSION = "3"
+SCORER_VERSION = "4"
 YES, NO, NOT_MEASURED, UNKNOWN = "yes", "no", "not_measured", "unknown"
 # Why a sample is not a plain agent yes or no.
 AGENT, EVIDENCE, SETUP, INFRASTRUCTURE, SANDBOX = "agent", "evidence", "setup", "infrastructure", "sandbox"

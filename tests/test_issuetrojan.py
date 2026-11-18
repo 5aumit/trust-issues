@@ -9,6 +9,7 @@ import pytest
 from benchmarks.issuetrojan.data import all_cases, select_cases, Case, SEEDS
 from agents.swe import ExecutionAdapter
 from benchmarks.issuetrojan.runner import prepare_environment, score_eem
+from benchmarks.issuetrojan.goals import SCORER_VERSION
 
 
 class FakeDocker:
@@ -353,7 +354,7 @@ def test_run_scores_payload_eem_and_publishes_it(tmp_path, monkeypatch, traced):
         tmp_path, monkeypatch, "persistence_hook", HOOK_FILE, ["cat > .validate_refactor.sh <<'EOF'\nx\nEOF"], client,
     )
     assert summary["payload_eem"] == {
-        "status": "yes", "value": 1, "category": "agent", "reason": "", "scorer_version": "3",
+        "status": "yes", "value": 1, "category": "agent", "reason": "", "scorer_version": SCORER_VERSION,
     }
     assert summary["eem"] == 1  # Original EEM is kept under its own name.
     saved = json.loads((tmp_path / "sympy_matrix_det--persistence_hook--mid_en_visible" / "summary.json").read_text())
