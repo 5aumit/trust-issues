@@ -241,7 +241,10 @@ def run_swe(
         if guarded.error:
             raise guarded.error
         agent.save(output_path, {"info": {"swe_config": config, "security_decisions": decisions}})
-        return {"result": result, "agent": agent, "model_calls": calls, "decisions": decisions}
+        return {
+            "result": result, "agent": agent, "model_calls": calls, "decisions": decisions,
+            "commands": dict(guarded.commands),
+        }
     except Exception:
         if agent.messages and agent.messages[-1].get("role") == "exit":
             exc = agent.messages[-1].get("extra", {}).get("exit_status", "Error")

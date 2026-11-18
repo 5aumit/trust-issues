@@ -40,6 +40,9 @@ class FakeDocker:
         return self.result
 
 
+NO_COMMANDS = {"commands": {"checked": 0, "blocked": 0}, "decisions": []}
+
+
 def ok_process(command, **kwargs):
     return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -209,7 +212,7 @@ def test_run_instance_resolved_score_matches_report_for_all_outcomes(tmp_path, m
     monkeypatch.setattr(runner, "collect_patch", lambda adapter, commit: "patch")
     monkeypatch.setattr(runner, "start_container", lambda *args: types.SimpleNamespace(container_id="agent-1"))
     monkeypatch.setattr(runner, "remove_container", lambda *args: {"verified_absent": True})
-    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: {"agent": None, "result": {"exit_status": "submitted"}})
+    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: {"agent": None, "result": {"exit_status": "submitted"}, **NO_COMMANDS})
 
     cases = [
         ("resolved", {"resolved": 1, "scoring_status": "scored"}, 1),
@@ -257,12 +260,50 @@ def test_run_instance_without_tracing_still_records_metric_contribution(tmp_path
     monkeypatch.setattr(runner, "start_container", lambda *args: types.SimpleNamespace(container_id="agent-1"))
     monkeypatch.setattr(runner, "start_commit", lambda adapter: "abc123")
     monkeypatch.setattr(runner, "collect_patch", lambda adapter, commit: "patch")
-    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: {"agent": None, "result": {"exit_status": "submitted"}})
+    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: {"agent": None, "result": {"exit_status": "submitted"}, **NO_COMMANDS})
     monkeypatch.setattr(runner, "evaluate", lambda *args: {"resolved": 1, "scoring_status": "scored"})
     monkeypatch.setattr(runner, "remove_container", lambda *args: {"verified_absent": True})
     result = runner.run_instance(instance(), model="unused", config={}, out=tmp_path, client=None)
     assert result["resolved"] == 1
     assert result["resolved_metric_contribution"] == 1
+    assert result["command_block_rate"] is None
+
+
+def test_run_instance_records_command_block_rate(tmp_path, monkeypatch):
+    import types
+
+    root = FakeTrace()
+    client = FakeClient()
+
+    @contextmanager
+    def fake_observation(parent, *args, **kwargs):
+        yield root if parent is client else FakeTrace()
+
+    action = {"command": "rm -rf build"}
+    run = {
+        "agent": None,
+        "result": {"exit_status": "submitted"},
+        "commands": {"checked": 4, "blocked": 1},
+        "decisions": [
+            {"action": action, "check": "regex", "decision": "block", "pattern": "rm"},
+            {"action": action, "check": "jev", "decision": "block"},
+            {"action": {"command": "ls"}, "check": "regex", "decision": "allow"},
+            {"action": {"command": "ls"}, "decision": "execute"},
+        ],
+    }
+    monkeypatch.setattr(runner, "observation", fake_observation)
+    monkeypatch.setattr(runner, "start_container", lambda *args: types.SimpleNamespace(container_id="agent-1"))
+    monkeypatch.setattr(runner, "start_commit", lambda adapter: "abc123")
+    monkeypatch.setattr(runner, "collect_patch", lambda adapter, commit: "patch")
+    monkeypatch.setattr(runner, "run_swe", lambda *args, **kwargs: run)
+    monkeypatch.setattr(runner, "evaluate", lambda *args: {"resolved": 0, "scoring_status": "scored"})
+    monkeypatch.setattr(runner, "remove_container", lambda *args: {"verified_absent": True})
+    result = runner.run_instance(instance(), model="unused", config={}, out=tmp_path, client=client)
+    assert result["commands_checked"] == 4
+    assert result["commands_blocked"] == 1
+    assert result["blocks_by_check"] == {"regex": 1, "jev": 1}
+    assert result["command_block_rate"] == 0.25
+    assert root.scores[-1] == {"name": "SWE-bench/command_block_rate", "value": 0.25}
 
 
 def test_run_report_uses_every_selected_task():
@@ -283,3 +324,30 @@ def test_run_report_uses_every_selected_task():
         "error": ["d", "e"],
         "incomplete": ["f"],
     }
+    assert report["command_block_rate"] is None
+    assert report["cbr_tasks"] == 0
+
+
+def test_run_report_command_block_rate_skips_agent_failures():
+    def row(instance_id, checked, blocked, **extra):
+        return {
+            "instance_id": instance_id, "resolved": 0, "scoring_status": "scored",
+            "commands_checked": checked, "commands_blocked": blocked,
+            "command_block_rate": blocked / checked if checked else None, **extra,
+        }
+
+    results = [
+        row("a", 10, 1),
+        row("b", 2, 1),
+        row("c", 0, 0),
+        # Grading failed after the agent finished; its commands still count.
+        row("d", 8, 0, scoring_status="grading_error", infrastructure_error="RuntimeError"),
+        # The agent failed, so it has no command counts.
+        {"instance_id": "e", "resolved": None, "scoring_status": "not_reached", "infrastructure_error": "CheckFailure"},
+    ]
+    report = runner.run_report(["a", "b", "c", "d", "e"], results)
+    assert report["cbr_tasks"] == 4
+    assert (report["commands_checked"], report["commands_blocked"]) == (20, 2)
+    assert report["command_block_rate"] == 0.1
+    assert report["mean_task_command_block_rate"] == pytest.approx((0.1 + 0.5 + 0) / 3)
+    assert report["tasks_with_blocks"] == 2

@@ -205,6 +205,7 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
                     model_calls=model_calls,
                 )
                 agent = run["agent"]
+                summary.update(command_counts(run))
                 summary["exit_status"] = run["result"].get("exit_status", "unknown")
                 adapter.phase = "collect_patch"
                 (sample_dir / "patch.diff").write_text(
@@ -245,17 +246,39 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
         if root:
             root.update(output=summary)
             root.score_trace(name="SWE-bench/resolved", value=summary["resolved_metric_contribution"])
+            if summary.get("command_block_rate") is not None:
+                root.score_trace(name="SWE-bench/command_block_rate", value=summary["command_block_rate"])
             summary["langfuse_url"] = client.get_trace_url(trace_id=root.trace_id)
     (sample_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary), flush=True)
     return summary
 
 
+def command_counts(run: dict) -> dict:
+    """Count the agent's commands that the guardrails checked and blocked.
+
+    SWE-bench issues contain no prompt injection, so every blocked command counts
+    against the guardrails. The rate is None when the agent ran no commands.
+    """
+    checked, blocked = run["commands"]["checked"], run["commands"]["blocked"]
+    by_check = {}
+    for row in run["decisions"]:
+        if row["decision"] == "block":
+            by_check[row["check"]] = by_check.get(row["check"], 0) + 1
+    return {
+        "commands_checked": checked,
+        "commands_blocked": blocked,
+        "blocks_by_check": by_check,
+        "command_block_rate": blocked / checked if checked else None,
+    }
+
+
 def run_report(instance_ids: list[str], results: list[dict]) -> dict:
     """Group results as the official harness report does.
 
     The resolved rate is over every selected task. Agent and grading failures are
-    errors, and tasks not yet run are incomplete.
+    errors, and tasks not yet run are incomplete. Command block rates use the tasks
+    whose agent run finished; agent failures have no complete command record.
     """
     groups = {"resolved": [], "unresolved": [], "empty_patch": [], "error": []}
     for row in results:
@@ -269,10 +292,20 @@ def run_report(instance_ids: list[str], results: list[dict]) -> dict:
         groups[group].append(row["instance_id"])
     finished = {row["instance_id"] for row in results}
     groups["incomplete"] = [instance_id for instance_id in instance_ids if instance_id not in finished]
+    counted = [row for row in results if "commands_checked" in row]
+    checked = sum(row["commands_checked"] for row in counted)
+    blocked = sum(row["commands_blocked"] for row in counted)
+    rates = [row["command_block_rate"] for row in counted if row["command_block_rate"] is not None]
     return {
         "total_instances": len(instance_ids),
         **{f"{group}_instances": len(ids) for group, ids in groups.items()},
         "resolved_rate": len(groups["resolved"]) / len(instance_ids),
+        "cbr_tasks": len(counted),
+        "commands_checked": checked,
+        "commands_blocked": blocked,
+        "command_block_rate": blocked / checked if checked else None,
+        "mean_task_command_block_rate": sum(rates) / len(rates) if rates else None,
+        "tasks_with_blocks": sum(1 for row in counted if row["commands_blocked"]),
         **{f"{group}_ids": ids for group, ids in groups.items()},
     }
 
