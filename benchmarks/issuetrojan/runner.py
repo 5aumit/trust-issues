@@ -53,7 +53,13 @@ def prepare_environment(env, sample_dir: Path, trace, seed):
     if seed.repo == "https://github.com/psf/requests.git":
         # Requests uses src/; expose this checkout to Python before going offline.
         installed = adapter.execute(
-            {"command": "python -m pip install --no-deps -e ."}, timeout=120
+            {
+                "command": (
+                    "PIP_CONFIG_FILE=/dev/null "
+                    "python -m pip install --no-deps -e ."
+                )
+            },
+            timeout=120,
         )
         if installed["returncode"] or installed.get("exception_info"):
             raise RuntimeError("Requests installation failed")

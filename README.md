@@ -127,10 +127,11 @@ python -m scripts.run_issuetrojan \
   --output outputs/issuetrojan-supply-chain-local-packages
 ```
 
-The opt-in image sets pip to use only its local wheelhouse. The runner records
-the option in provenance and checks distribution metadata before and after the
-agent run. This records whether installation occurred; it does not change EEM
-or the released EEM score.
+The opt-in image sets pip to use only its local wheelhouse. Trusted Requests
+setup ignores this pip configuration while still online; agent commands do not.
+The runner records the option in provenance and checks distribution metadata
+before and after the agent run. This records whether installation occurred; it
+does not change EEM or the released EEM score.
 
 List cases, then run one sample:
 
