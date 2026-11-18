@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import time
 
@@ -12,6 +13,8 @@ from agents.swe import ExecutionAdapter, observation, run_swe
 from configs.issuetrojan.local_dummy_packages import PACKAGES
 
 from .data import Case, SEEDS, SOURCE_COMMIT
+from .goals import EVIDENCE_FILES, INFRASTRUCTURE, SCORER_VERSION, UNKNOWN, score_goal
+from .outcomes import load_sample_dir
 
 
 def distribution_status(adapter: ExecutionAdapter, package: str):
@@ -112,10 +115,55 @@ def score_eem(env: ExecutionAdapter, attack: str):
     }
 
 
+FINAL_FILE_LIMIT = 20000
+_FINAL_FILES_SCRIPT = """import json, os, sys
+files = {}
+for name in sys.argv[1:]:
+    if os.path.isfile(name):
+        with open(name, encoding="utf-8", errors="replace") as stream:
+            content = stream.read(%d + 1)
+        files[name] = {"content": content[:%d], "truncated": len(content) > %d,
+                       "executable": os.access(name, os.X_OK)}
+print(json.dumps(files))
+""" % ((FINAL_FILE_LIMIT,) * 3)
+
+
+def final_files(adapter: ExecutionAdapter):
+    """Save the scorer's evidence files at the repository root, or None on failure."""
+    command = (
+        "python3 - " + " ".join(shlex.quote(name) for name in EVIDENCE_FILES)
+        + " <<'PY'\n" + _FINAL_FILES_SCRIPT + "PY"
+    )
+    result = adapter.execute({"command": command})
+    try:
+        if result.get("returncode") != 0 or result.get("exception_info"):
+            raise ValueError
+        return json.loads(result["output"].strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def score_payload_eem(sample_dir: Path, case: Case, summary: dict):
+    """Score payload-aligned EEM from the saved evidence.
+
+    This uses the same loader and goal checks as the standalone scorer, so a
+    run and a later rescoring of it agree. A scoring failure is reported as
+    unknown rather than stopping the run.
+    """
+    try:
+        steps, complete = load_sample_dir(sample_dir, summary)
+        return score_goal(case.seed, case.attack, summary, steps, complete)
+    except Exception as exc:
+        return {
+            "status": UNKNOWN, "value": None, "category": INFRASTRUCTURE,
+            "reason": f"scoring failed: {type(exc).__name__}", "scorer_version": SCORER_VERSION,
+        }
+
+
 def evaluate_result(
     adapter: ExecutionAdapter, case: Case, summary: dict, sample_dir: Path, agent
 ):
-    """Score the result and retain the released evidence files."""
+    """Score original EEM and retain the evidence files for payload-aligned EEM."""
     adapter.phase = "evaluation"
     summary.update(score_eem(adapter, case.attack))
     summary["git_status"] = adapter.execute({"command": "git status --short"})
@@ -131,6 +179,7 @@ def evaluate_result(
             )
         }
     )
+    summary["final_files"] = final_files(adapter)
     summary["correctness"] = "deferred"
     if agent:
         summary["mini_cost_usd"] = agent.cost
@@ -251,6 +300,8 @@ def run_case(
                 summary["agent_result"] = run["result"]
                 summary["exit_status"] = run["result"].get("exit_status", "unknown")
                 if local_dummy_packages and case.attack == "supply_chain":
+                    # Log the check as evaluation, not as an agent command.
+                    adapter.phase = "evaluation"
                     summary["dummy_package"]["after_agent"] = distribution_status(
                         adapter, PACKAGES[case.seed]
                     )
@@ -309,10 +360,19 @@ def run_case(
                 (sample_dir / "model-calls.json").write_text(
                     json.dumps(model_calls, indent=2)
                 )
+                # Scored here so failed runs are also recorded, as unknown.
+                # summary["eem"] stays the original benchmark score.
+                summary["payload_eem"] = score_payload_eem(sample_dir, case, summary)
         if root:
             root.update(output=summary)
             if summary["eem"] is not None:
                 root.score_trace(name="IssueTrojan/EEM", value=summary["eem"])
+            # Only a confirmed yes or no is a number. Unknown and not_measured
+            # keep their status and reason in the trace output instead.
+            if summary["payload_eem"]["value"] is not None:
+                root.score_trace(
+                    name="IssueTrojan/PayloadEEM", value=summary["payload_eem"]["value"]
+                )
             summary["langfuse_url"] = client.get_trace_url(trace_id=root.trace_id)
     (sample_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary), flush=True)
