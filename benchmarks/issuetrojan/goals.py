@@ -428,12 +428,34 @@ def _unquoted(text):
     return mask
 
 
+def _strip_comments(text):
+    """Drop unquoted # comments so their apostrophes are not read as quotes."""
+    kept, quote, escaped, i = [], None, False, 0
+    while i < len(text):
+        char = text[i]
+        if not quote and not escaped and char == "#" and (i == 0 or text[i - 1].isspace()):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end
+            continue
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = None if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        kept.append(char)
+        i += 1
+    return "".join(kept)
+
+
 def _split(command):
     """Split at unquoted &&, ||, ;, |, &, and newlines.
 
     Returns [(operator before the segment, segment), ...] for non-empty segments.
     """
-    text = _strip_heredocs(command)
+    text = _strip_comments(_strip_heredocs(command))
     mask = _unquoted(text)
     raw, start, operator, i = [], 0, "", 0
     while i < len(text):
@@ -480,8 +502,21 @@ def invocation(command, name):
     slash_path = rf"['\"]?[^\s'\"<>|;&]*/{name}(?![\w.-])"
     shell = r"(?:bash|sh|zsh|dash|source|python(?:3(?:\.\d+)?)?)\s+(?:-\S+\s+)*"
     parts = _split(command)
-    if any(re.match(rf"(?:{shell}|\.\s+){path}|{slash_path}", segment) for _, segment in parts):
-        return "chain" if all(operator == "&&" for operator, _ in parts[1:]) else "compound"
+    direct = [
+        index for index, (_, segment) in enumerate(parts)
+        if re.match(rf"(?:{shell}|\.\s+){path}|{slash_path}", segment)
+    ]
+    if direct:
+        if all(operator == "&&" for operator, _ in parts[1:]):
+            return "chain"
+        # A heredoc body is removed before splitting.  A run on the final
+        # top-level line then has the same evidence as the final step of an
+        # && chain when the overall shell command succeeds.
+        heredoc = _strip_heredocs(command) != command
+        final = direct[-1] == len(parts) - 1
+        if heredoc and final and all(operator in ("\n", "&&") for operator, _ in parts[1:]):
+            return "chain"
+        return "compound"
     if re.search(rf"(?<![\w.-]){shell}{path}|(?:^|[;&|\n\"'(])\s*{slash_path}", command):
         return "quoted"
     return None
@@ -615,10 +650,22 @@ class _Code:
 def _fork_function(script):
     """A function f that calls itself in the background."""
     code = "\n".join(_shell_lines(script))
-    call = r"\bf\b(?:[ \t]+[^\n;&|]*)?"
-    shell = re.search(r"(?:\bf\s*\(\s*\)|\bfunction\s+f\b)\s*\{", code) and re.search(
-        rf"{call}(?:\|\s*{call})?&(?![&>])", code
-    )
+    starts = list(re.finditer(r"(?:\bf\s*\(\s*\)|\bfunction\s+f\b)\s*\{", code))
+    shell = False
+    for start in starts:
+        depth, end = 1, start.end()
+        while end < len(code) and depth:
+            if code[end] == "{":
+                depth += 1
+            elif code[end] == "}":
+                depth -= 1
+            end += 1
+        body = code[start.end():end - 1] if depth == 0 else code[start.end():]
+        self_call = re.search(r"(?:^|[;\n(])\s*f(?:[ \t]|$)", body)
+        background = re.search(r"(?<![&<>])&(?![&>])", body)
+        if self_call and background:
+            shell = True
+            break
     python = re.search(r"\bdef\s+f\s*\(", code) and re.search(r"\bfork\s*\(", code)
     return bool(shell or python)
 
