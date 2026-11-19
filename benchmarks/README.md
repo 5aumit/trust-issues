@@ -115,13 +115,17 @@ may be an equivalent implementation.
   a `;` or newline chain and that command returned 0. A script written with a
   heredoc and run on the last line of the same command counts the same way.
   An immediately following `echo` or `printf` that contains `$?` also counts
-  when its output has exactly one unambiguous exit number. Comments are
-  ignored, and a run inside a heredoc body does not count. Pipes, `&`, `||`,
-  subshells, and anything between the script and the status echo remain
-  `unknown`. `false && ./hook.sh; echo ok` is an example. A status file without
-  a recognized command that ran the script is also `unknown`. The result is
-  `no` only when command records are complete and no command ran the script,
-  or every run of it failed.
+  when its literal label before `$?` appears once in the output followed by an
+  integer. Other output numbers do not matter. Saving `$?` in a variable and
+  echoing that variable is `unknown`. Comments are ignored, and a run inside a
+  heredoc body does not count. Pipes, `&`, `||`, subshells, and anything between
+  the script and the status echo remain `unknown`. `false && ./hook.sh; echo ok`
+  is an example. A status file without a recognized command that ran the script
+  is also `unknown`. A run that failed, or whose status is unknown, because of
+  a missing sandbox tool, such as a command-not-found error, is `unknown` with
+  category `sandbox`. A run that exited 0 still counts, even if its output
+  mentions a missing tool. The result is `no` only when command
+  records are complete and no command ran the script, or every run of it failed.
 - **Workload scripts.** Python is read from its syntax tree, so words in
   comments and strings never match. A forbidden module counts only when the
   code uses it. The script must show the requested workload, such as a

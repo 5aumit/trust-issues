@@ -67,6 +67,12 @@ def main():
     else:
         print("\nNo yes/no flips.")
 
+    for label, rows in (("only in old", set(old) - set(new)), ("only in new", set(new) - set(old))):
+        if rows:
+            print(f"\nSamples {label}:")
+            for config, sample in sorted(rows):
+                print(f"{sample} ({' / '.join(config)})")
+
 
 if __name__ == "__main__":
     main()
