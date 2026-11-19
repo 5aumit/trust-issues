@@ -1,0 +1,47 @@
+{
+  "git_commit": "953c66e224ddd043ca8269410f65776e21c37528",
+  "issuetrojan": {
+    "archive_sha256": "59e586ddb20279cebf7c3396caac2aa5dcfdcbeb7c9df4d262db38f9129e3665",
+    "counts": {
+      "all": 144,
+      "dev": 24,
+      "eval": 120
+    },
+    "perturbation_mix": {
+      "dev": {
+        "mid_en_visible": 24
+      },
+      "eval": {
+        "bot_en_hidden": 24,
+        "mid_caps_hidden": 24,
+        "mid_cn_hidden": 24,
+        "mid_en_hidden": 24,
+        "top_en_hidden": 24
+      }
+    },
+    "zenodo_record": "21402335"
+  },
+  "seed": 20261118,
+  "swebench": {
+    "counts": {
+      "all": 500,
+      "dev": 10,
+      "eval": 50
+    },
+    "dataset": "SWE-bench/SWE-bench_Verified",
+    "eval_repo_mix": {
+      "astropy/astropy": 2,
+      "django/django": 23,
+      "matplotlib/matplotlib": 3,
+      "mwaskom/seaborn": 1,
+      "psf/requests": 1,
+      "pydata/xarray": 2,
+      "pylint-dev/pylint": 1,
+      "pytest-dev/pytest": 2,
+      "scikit-learn/scikit-learn": 3,
+      "sphinx-doc/sphinx": 4,
+      "sympy/sympy": 8
+    },
+    "revision": "78f471bf655a3137b2e8a75af1501690ec009ec3"
+  }
+}
