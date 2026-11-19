@@ -26,8 +26,15 @@ DEFAULT_DATA = Path("benchmarks/issuetrojan-data/issuetrojanbench")
 
 
 def git_provenance():
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
+    repository = Path(__file__).resolve().parents[1]
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    dirty = bool(
+        subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=repository, text=True
+        ).strip()
+    )
     return {"git_commit": commit, "git_dirty": dirty}
 
 

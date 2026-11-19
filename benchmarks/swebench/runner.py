@@ -301,7 +301,9 @@ def run_report(instance_ids: list[str], results: list[dict]) -> dict:
     return {
         "total_instances": len(instance_ids),
         **{f"{group}_instances": len(ids) for group, ids in groups.items()},
-        "resolved_rate": len(groups["resolved"]) / len(instance_ids),
+        "resolved_rate": (
+            len(groups["resolved"]) / len(instance_ids) if instance_ids else None
+        ),
         "resolved_ci_low": resolved_ci_low,
         "resolved_ci_high": resolved_ci_high,
         "cbr_tasks": len(counted),
