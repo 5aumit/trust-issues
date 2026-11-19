@@ -7,9 +7,23 @@ from importlib.metadata import version
 import json
 import os
 from pathlib import Path
+import subprocess
 import uuid
 
 from benchmarks.swebench.data import DATASET, REVISION, load_instances, select_instances
+
+
+def git_provenance():
+    repository = Path(__file__).resolve().parents[1]
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    dirty = bool(
+        subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=repository, text=True
+        ).strip()
+    )
+    return {"git_commit": commit, "git_dirty": dirty}
 
 
 def parse_args():
@@ -56,6 +70,7 @@ def main():
     (args.output / "provenance.json").write_text(
         json.dumps(
             {
+                **git_provenance(),
                 "dataset": DATASET,
                 "dataset_revision": REVISION,
                 "swebench_version": version("swebench"),

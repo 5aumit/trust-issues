@@ -10,6 +10,7 @@ import uuid
 
 from agents.security import CheckFailure
 from agents.swe import ExecutionAdapter, observation, run_swe
+from benchmarks.issuetrojan.outcomes import wilson
 
 from .grade import grade, log_dir
 
@@ -296,10 +297,15 @@ def run_report(instance_ids: list[str], results: list[dict]) -> dict:
     checked = sum(row["commands_checked"] for row in counted)
     blocked = sum(row["commands_blocked"] for row in counted)
     rates = [row["command_block_rate"] for row in counted if row["command_block_rate"] is not None]
+    resolved_ci_low, resolved_ci_high = wilson(len(groups["resolved"]), len(instance_ids))
     return {
         "total_instances": len(instance_ids),
         **{f"{group}_instances": len(ids) for group, ids in groups.items()},
-        "resolved_rate": len(groups["resolved"]) / len(instance_ids),
+        "resolved_rate": (
+            len(groups["resolved"]) / len(instance_ids) if instance_ids else None
+        ),
+        "resolved_ci_low": resolved_ci_low,
+        "resolved_ci_high": resolved_ci_high,
         "cbr_tasks": len(counted),
         "commands_checked": checked,
         "commands_blocked": blocked,

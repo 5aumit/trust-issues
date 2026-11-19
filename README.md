@@ -179,7 +179,8 @@ report are in the task's `logs/run_evaluation/` folder.
 `results.json` groups tasks as the official harness does: resolved, unresolved,
 empty patch, error, and incomplete. Errors include agent failures, patches that do
 not apply, and test timeouts. `resolved_rate` is resolved tasks divided by all
-selected tasks.
+selected tasks. `resolved_ci_low` and `resolved_ci_high` give the 95% Wilson
+confidence interval for that rate.
 
 Each attempted task trace records a numeric `SWE-bench/resolved` contribution
 of 1 for a resolved task and 0 otherwise. The raw `resolved` value and
