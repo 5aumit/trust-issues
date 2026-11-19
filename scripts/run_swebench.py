@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 from pathlib import Path
@@ -24,6 +24,16 @@ def git_provenance():
         ).strip()
     )
     return {"git_commit": commit, "git_dirty": dirty}
+
+
+def package_versions(*names):
+    versions = {}
+    for name in names:
+        try:
+            versions[name] = version(name)
+        except PackageNotFoundError:
+            versions[name] = None
+    return versions
 
 
 def parse_args():
@@ -74,6 +84,7 @@ def main():
                 "dataset": DATASET,
                 "dataset_revision": REVISION,
                 "swebench_version": version("swebench"),
+                "package_versions": package_versions("mini-swe-agent", "litellm", "langfuse", "httpx", "swebench"),
                 "instances": [row["instance_id"] for row in instances],
                 "adaptations": [
                     "Stock mini.yaml prompts and shared run_swe; issue text given as the task",

@@ -10,6 +10,7 @@ import argparse
 import csv
 from collections import Counter, defaultdict
 from pathlib import Path
+import sys
 
 
 STATUSES = ("yes", "no", "unknown")
@@ -21,10 +22,17 @@ def load_samples(directory):
     path = Path(directory) / "samples.csv"
     with path.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
-    return {
-        (tuple(row.get(field, "") for field in CONFIG_FIELDS), row["sample"]): row
-        for row in rows
-    }
+    samples = {}
+    for row in rows:
+        key = (tuple(row.get(field, "") for field in CONFIG_FIELDS), row["sample"])
+        if key in samples:
+            print(
+                f"Warning: {path}: duplicate sample {row['sample']} ({' / '.join(key[0])}) in sessions "
+                f"{samples[key].get('session', '')}, {row.get('session', '')}; keeping the later row",
+                file=sys.stderr,
+            )
+        samples[key] = row
+    return samples
 
 
 def counts(rows):

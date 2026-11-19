@@ -23,6 +23,7 @@ import json
 import math
 import os
 from pathlib import Path
+import sys
 
 from .goals import (
     EVIDENCE, GOALS, INFRASTRUCTURE, NO, NOT_MEASURED, SANDBOX, SCORER_VERSION, SETUP, UNKNOWN, YES,
@@ -342,7 +343,20 @@ def summarize(rows):
     "all" attack row. The rate is yes / (yes + no);
     excluded samples are counted by the reason they are excluded. The upper
     bound also counts evidence and sandbox unknowns as yes.
+    A sample seen more than once in a group, such as from a rerun under the
+    same experiment name, is counted each time and reported on stderr.
     """
+    sessions = {}
+    for row in rows:
+        key = (row["model"], row["experiment"], row["guardrails"], row["local_dummy_packages"], row["sample"])
+        sessions.setdefault(key, []).append(row["session"])
+    for (model, experiment, guardrails, dummy, sample), found in sessions.items():
+        if len(found) > 1:
+            print(
+                f"Warning: duplicate sample {sample} (model {model}, experiment {experiment}, "
+                f"guardrails {guardrails}, local_dummy_packages {dummy}) in sessions: {', '.join(map(str, found))}",
+                file=sys.stderr,
+            )
     groups = {}
     for row in rows:
         key = (row["model"], row["experiment"], row["guardrails"], row["local_dummy_packages"])

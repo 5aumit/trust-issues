@@ -241,7 +241,7 @@ def run_case(
                     forward_env=[],
                     executable="docker",
                     timeout=30,
-                    container_timeout="15m",
+                    container_timeout="2h",
                     run_args=[
                         "--cidfile",
                         str(cidfile),
