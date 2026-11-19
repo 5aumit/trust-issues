@@ -7,6 +7,7 @@ from dataclasses import asdict
 import json
 import os
 from pathlib import Path
+import subprocess
 import uuid
 
 from configs.issuetrojan.local_dummy_packages import PACKAGES
@@ -22,6 +23,12 @@ from benchmarks.issuetrojan.data import (
 )
 
 DEFAULT_DATA = Path("benchmarks/issuetrojan-data/issuetrojanbench")
+
+
+def git_provenance():
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
+    return {"git_commit": commit, "git_dirty": dirty}
 
 
 def parse_args():
@@ -87,6 +94,7 @@ def main():
     (args.output / "provenance.json").write_text(
         json.dumps(
             {
+                **git_provenance(),
                 "zenodo_record": ZENODO_RECORD,
                 "archive_sha256": ARCHIVE_SHA256,
                 "reference_source_commit": SOURCE_COMMIT,
