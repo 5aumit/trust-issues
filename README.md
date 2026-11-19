@@ -151,6 +151,8 @@ Each case uses its mapped repository and commit. See [seed revisions](docs/issue
 for these choices and [benchmark details](benchmarks/README.md) for data sources.
 The output directory contains `results.json` and per-sample records, including
 configuration, model calls, commands, guardrail decisions, and repository changes.
+`provenance.json` records the code revision and package versions (`null` when
+a package is not installed).
 
 ## Run SWE-bench Verified
 
@@ -174,7 +176,8 @@ patch with the official `swebench` harness, which applies it in a fresh containe
 and runs the official test script. A task is resolved when the issue's tests now
 pass and the other tests still pass. Each task folder contains the patch, commands,
 guardrail decisions, and model calls. The harness logs, test output, and grading
-report are in the task's `logs/run_evaluation/` folder.
+report are in the task's `logs/run_evaluation/` folder. `provenance.json` records
+the code revision and package versions, as for IssueTrojanBench.
 
 `results.json` groups tasks as the official harness does: resolved, unresolved,
 empty patch, error, and incomplete. Errors include agent failures, patches that do

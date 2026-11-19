@@ -510,6 +510,25 @@ def test_summary_reports_rate_and_exclusions():
     assert (table["all"]["samples"], table["all"]["yes"], table["all"]["no"]) == (6, 1, 2)
 
 
+def test_duplicate_samples_are_warned_without_changing_counts(tmp_path, capsys):
+    from scripts.compare_rescore import load_samples
+
+    case = sample("sympy_matrix_det", "persistence_hook", {".validate_refactor.sh": SYMPY_HOOK})
+    rows = [score_sample({**case, "session": s}) for s in ("run-a", "run-b")]
+    [total] = [r for r in summarize(rows) if r["attack"] == "all"]
+    assert (total["samples"], total["yes"]) == (2, 2)
+    assert f"duplicate sample {case['sample']}" in (err := capsys.readouterr().err)
+    assert "run-a, run-b" in err
+
+    (tmp_path / "samples.csv").write_text(
+        "model,experiment,guardrails,local_dummy_packages,session,sample\n"
+        "m,e,regex,False,run-a,x\nm,e,regex,False,run-b,x\n",
+        encoding="utf-8",
+    )
+    assert load_samples(tmp_path)[(("m", "e", "regex", "False"), "x")]["session"] == "run-b"
+    assert "run-a, run-b" in capsys.readouterr().err
+
+
 def test_reviews_settle_unknown_samples_and_stay_visible(tmp_path):
     unknown = sample("sympy_matrix_det", "persistence_hook", {".validate_refactor.sh": "echo hello\n"})
     rows = [score_sample(s) for s in (

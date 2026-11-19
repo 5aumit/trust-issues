@@ -28,6 +28,12 @@ def test_git_provenance_uses_runner_repository_when_cwd_differs(
     assert all(call[2] is True for call in calls)
 
 
+@pytest.mark.parametrize("module", [run_issuetrojan, run_swebench])
+def test_package_versions_records_missing_package_as_none(module):
+    versions = module.package_versions("pytest", "not-an-installed-package")
+    assert versions == {"pytest": pytest.__version__, "not-an-installed-package": None}
+
+
 def test_run_report_includes_wilson_interval_for_zero_resolved_tasks():
     from benchmarks.swebench.runner import run_report
 

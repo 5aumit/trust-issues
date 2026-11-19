@@ -16,10 +16,11 @@ if [[ ${#args[@]} -lt 1 || ${#args[@]} -gt 2 ]]; then
   exit 2
 fi
 
+failed=()
 run_command() {
   local command=$1
   if "$execute"; then
-    eval "$command"
+    eval "$command" || failed+=("$command")
   else
     printf '%s\n' "$command"
   fi
@@ -65,3 +66,9 @@ case "${args[0]}" in
     exit 2
     ;;
 esac
+
+if [[ ${#failed[@]} -gt 0 ]]; then
+  echo "failed commands:" >&2
+  printf '  %s\n' "${failed[@]}" >&2
+  exit 1
+fi

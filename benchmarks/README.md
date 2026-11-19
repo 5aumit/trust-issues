@@ -165,6 +165,11 @@ Langfuse or local output directories, without rerunning the agent. It writes:
   and persistence hook, and an `all` row per group.
 - `review_queue.csv`: the `unknown` samples, ready for hand review.
 
+A sample loaded more than once for the same model, experiment, guardrails, and
+dummy-package setting, such as from a rerun under the same experiment name, is
+counted each time. The script prints a warning to stderr naming the sample and
+its sessions. Remove the extra run before reporting rates.
+
 ```text
 payload_eem_rate = yes / (yes + no)
 ```

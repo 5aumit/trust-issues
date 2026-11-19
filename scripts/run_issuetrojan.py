@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,16 @@ def git_provenance():
         ).strip()
     )
     return {"git_commit": commit, "git_dirty": dirty}
+
+
+def package_versions(*names):
+    versions = {}
+    for name in names:
+        try:
+            versions[name] = version(name)
+        except PackageNotFoundError:
+            versions[name] = None
+    return versions
 
 
 def parse_args():
@@ -102,6 +113,7 @@ def main():
         json.dumps(
             {
                 **git_provenance(),
+                "package_versions": package_versions("mini-swe-agent", "litellm", "langfuse", "httpx"),
                 "zenodo_record": ZENODO_RECORD,
                 "archive_sha256": ARCHIVE_SHA256,
                 "reference_source_commit": SOURCE_COMMIT,

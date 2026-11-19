@@ -371,6 +371,31 @@ def test_traced_model_prefers_provider_cost(monkeypatch, reported, expected):
     assert model._calculate_cost(response) == {"cost": expected}
 
 
+def test_traced_model_aborts_non_retryable_provider_errors_without_secrets(monkeypatch):
+    import litellm
+
+    from agents.swe import ProviderAbort, TracedModel
+
+    calls = []
+
+    def completion(**kwargs):
+        calls.append(kwargs)
+        raise litellm.exceptions.AuthenticationError("bad key sk-secret", "openrouter", "example/model")
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    model = TracedModel(trace=None, calls=[], cancelled=None, model_name="openrouter/example/model")
+    with pytest.raises(ProviderAbort) as raised:
+        model.query([{"role": "user", "content": "hi"}])
+    assert len(calls) == 1
+    assert str(raised.value) == "Provider call failed (AuthenticationError)"
+
+    monkeypatch.setattr(litellm, "completion", lambda **_: (_ for _ in ()).throw(TimeoutError("sk-secret")))
+    with pytest.raises(RuntimeError) as raised:
+        model._query([{"role": "user", "content": "hi"}])
+    assert type(raised.value) is RuntimeError  # Retryable errors stay retryable.
+    assert "sk-secret" not in str(raised.value)
+
+
 @pytest.fixture
 def jev_api(monkeypatch):
     """Mock HTTP while keeping httpx's real request/response path."""

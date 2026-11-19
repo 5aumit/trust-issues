@@ -131,7 +131,13 @@ class ExecutionAdapter:
         )
 
 
+class ProviderAbort(RuntimeError):
+    """A provider error that retrying cannot fix, such as a bad key."""
+
+
 class TracedModel(LitellmModel):
+    abort_exceptions = [*LitellmModel.abort_exceptions, ProviderAbort]
+
     def __init__(self, *, trace, calls, cancelled, **kwargs):
         super().__init__(**kwargs)
         self.trace = trace
@@ -145,7 +151,9 @@ class TracedModel(LitellmModel):
             try:
                 response = super()._query(messages, **kwargs)
             except Exception as exc:
-                raise RuntimeError(f"Provider call failed ({type(exc).__name__})") from None
+                # Provider messages can contain secrets, so only the type is kept.
+                error = ProviderAbort if isinstance(exc, tuple(self.abort_exceptions)) else RuntimeError
+                raise error(f"Provider call failed ({type(exc).__name__})") from None
             raw = response.model_dump(mode="json")
             self.calls.append(raw)
             if obs:
