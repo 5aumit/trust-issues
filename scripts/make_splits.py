@@ -49,11 +49,12 @@ def proportional_quotas(groups: dict[str, list[dict]], count: int) -> dict[str, 
     if total < count:
         raise ValueError(f"Only {total} candidates are available for {count} samples")
 
-    quotas = {
-        name: max(1, len(rows) * count // total)
+    floor_quotas = {
+        name: len(rows) * count // total
         for name, rows in groups.items()
         if rows
     }
+    quotas = {name: max(1, quota) for name, quota in floor_quotas.items()}
     allocated = sum(quotas.values())
     if allocated > count:
         raise ValueError(
@@ -65,11 +66,14 @@ def proportional_quotas(groups: dict[str, list[dict]], count: int) -> dict[str, 
         (
             (len(rows) * count % total, name)
             for name, rows in groups.items()
-            if rows
+            if rows and floor_quotas[name] >= 1
         ),
         key=lambda item: (-item[0], item[1]),
     )
-    for _, name in remainders[: count - allocated]:
+    leftovers = count - allocated
+    if len(remainders) < leftovers:
+        raise ValueError("Largest-remainder allocation cannot fill the split")
+    for _, name in remainders[:leftovers]:
         quotas[name] += 1
     return quotas
 

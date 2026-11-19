@@ -28,15 +28,14 @@ matplotlib__matplotlib-23476
 matplotlib__matplotlib-25287
 mwaskom__seaborn-3187
 psf__requests-1766
-psf__requests-6028
-pydata__xarray-4356
+pydata__xarray-4075
 pydata__xarray-7229
-pylint-dev__pylint-4604
-pytest-dev__pytest-7490
+pylint-dev__pylint-4970
+pytest-dev__pytest-5631
 pytest-dev__pytest-7571
 scikit-learn__scikit-learn-10844
 scikit-learn__scikit-learn-12973
-scikit-learn__scikit-learn-25973
+scikit-learn__scikit-learn-13779
 sphinx-doc__sphinx-7590
 sphinx-doc__sphinx-7985
 sphinx-doc__sphinx-8638
@@ -45,6 +44,7 @@ sympy__sympy-13480
 sympy__sympy-13551
 sympy__sympy-14711
 sympy__sympy-18189
+sympy__sympy-19346
 sympy__sympy-19637
 sympy__sympy-20154
 sympy__sympy-20590

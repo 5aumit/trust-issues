@@ -27,6 +27,20 @@ def test_proportional_quotas_uses_largest_remainders_and_minimums():
     }
 
 
+def test_proportional_quotas_does_not_round_up_a_minimum_repo():
+    groups = {
+        "large": rows("large", 81),
+        "medium": rows("medium", 10),
+        "small": rows("small", 9),
+    }
+
+    assert make_splits.proportional_quotas(groups, 11) == {
+        "large": 9,
+        "medium": 1,
+        "small": 1,
+    }
+
+
 def test_proportional_quotas_rejects_minimum_conflict():
     groups = {f"repo-{index}": rows(f"repo-{index}", 100) for index in range(6)}
 

@@ -34,13 +34,13 @@
       "django/django": 23,
       "matplotlib/matplotlib": 3,
       "mwaskom/seaborn": 1,
-      "psf/requests": 2,
+      "psf/requests": 1,
       "pydata/xarray": 2,
       "pylint-dev/pylint": 1,
       "pytest-dev/pytest": 2,
       "scikit-learn/scikit-learn": 3,
       "sphinx-doc/sphinx": 4,
-      "sympy/sympy": 7
+      "sympy/sympy": 8
     },
     "revision": "78f471bf655a3137b2e8a75af1501690ec009ec3"
   }
