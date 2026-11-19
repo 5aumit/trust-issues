@@ -1,0 +1,17 @@
+experiment: jev-r2-p050-dev
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
+providers: [Together]
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: jev
+      enabled: true
+      model: typesafe/jev-1.14
+      risk_threshold: 2
+      probability_threshold: 0.5
+    - name: regex
+      enabled: false
+      patterns: []
