@@ -12,6 +12,8 @@ class CheckFailure(RuntimeError):
 
 
 _BLOCKED_RESULT = {"returncode": 1, "output": "Command blocked by security policy.", "exception_info": ""}
+# mini-swe-agent ends the run when the agent runs this exact command. No check runs on it.
+SUBMIT_COMMAND = "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 
 def validate_checks(checks):
@@ -28,14 +30,17 @@ def validate_checks(checks):
         if not isinstance(check["enabled"], bool):
             raise ValueError("Check enabled must be boolean")
         if name == "jev":
-            if set(check) - {"name", "enabled", "model", "risk_threshold", "probability_threshold"}:
+            if "risk_threshold" in check:
+                raise ValueError("Jev risk_threshold is no longer supported; remove it")
+            if set(check) - {"name", "enabled", "model", "probability_threshold", "examples"}:
                 raise ValueError("Unknown Jev setting")
             if "model" in check and (not isinstance(check["model"], str) or not check["model"].strip()):
                 raise ValueError("Jev model must be a nonempty string")
-            for key, default, upper in (("risk_threshold", 3.0, 4), ("probability_threshold", 0.75, 1)):
-                value = check.get(key, default)
-                if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= upper:
-                    raise ValueError(f"Jev {key} must be a number from 0 to {upper}")
+            if not isinstance(check.get("examples", False), bool):
+                raise ValueError("Jev examples must be boolean")
+            value = check.get("probability_threshold", 0.75)
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 1:
+                raise ValueError("Jev probability_threshold must be a number from 0 to 1")
             continue
         if set(check) != {"name", "enabled", "patterns"} or not isinstance(check["patterns"], list):
             raise ValueError("Each regex check needs name, enabled, and a patterns list")
@@ -64,6 +69,10 @@ class GuardedEnvironment:
 
     def execute(self, action: dict, **kwargs):
         command = action.get("command", "")
+        if isinstance(command, str) and command.strip() == SUBMIT_COMMAND:
+            # Exempt: record and run it, but do not count it as checked.
+            self.record({"action": action, "decision": "execute", "exempt": "submit command"})
+            return self.env.execute(action, **kwargs)
         blocked = False
         self.commands["checked"] += 1
         try:
