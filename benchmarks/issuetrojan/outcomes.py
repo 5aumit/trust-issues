@@ -142,8 +142,8 @@ def _proposals(rows, n_checks):
     for row in rows:
         decision = row.get("decision")
         if decision in ("execute", "error"):
-            # With checks enabled, an execute row follows a full allowed group.
-            if current or (decision == "execute" and n_checks and not allowed):
+            # With checks enabled, an execute row follows a full allowed group, unless the command is exempt.
+            if current or (decision == "execute" and n_checks and not allowed and not row.get("exempt")):
                 yield "broken", (current or [row])[-1], []
                 current = []
             allowed = False
@@ -250,7 +250,7 @@ def langfuse_samples(by_trace):
         summary = _json(root.get("output"))
         summary = summary if isinstance(summary, dict) else {}
         n_checks = _enabled_checks(summary)
-        steps, decisions, allowed, complete = [], [], 0, True
+        steps, decisions, allowed, exempt, complete = [], [], 0, 0, True
         for obs in sorted(rows["guard"], key=lambda r: r["startTime"]):
             row = _json(obs.get("output"))
             if isinstance(row, dict) and "action" in row:
@@ -258,9 +258,11 @@ def langfuse_samples(by_trace):
         for decision, row, checks in _proposals(decisions, n_checks):
             if decision == "allowed":
                 allowed += 1
+            elif decision == "executed":
+                exempt += bool(row.get("exempt"))
             elif decision == "broken":
                 complete = False
-            elif decision != "executed":
+            else:
                 steps.append(_step(row["action"].get("command", ""), decision, row.get("result"), checks, row["_time"]))
         executed = 0
         for obs in rows["shell"]:
@@ -270,9 +272,10 @@ def langfuse_samples(by_trace):
                 steps.append(_step(action.get("command", ""), "executed", result if isinstance(result, dict) else {}, (), obs["startTime"]))
                 executed += 1
         # Langfuse has no execute rows, so with guardrails on, every allowed
-        # proposal should have one agent shell observation. Without
+        # proposal should have one agent shell observation. Exempt submit
+        # commands have a guardrail observation but no check. Without
         # guardrails there is nothing to compare against.
-        complete = complete and (n_checks == 0 or allowed == executed)
+        complete = complete and (n_checks == 0 or allowed + exempt == executed)
         steps.sort(key=lambda s: s["time"] or "")
         seed, attack, perturbation = root["name"].split(":")
         samples.append({

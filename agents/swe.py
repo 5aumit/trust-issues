@@ -215,7 +215,8 @@ def run_swe(
             jev_observation.update(output=row)
             jev_observation.end()
             jev_observation = None
-        elif row["decision"] != "execute":
+        elif row["decision"] != "execute" or row.get("exempt"):
+            # Exempt submit commands get an observation so Langfuse can match them to shell records.
             with observation(trace, "security check", "guardrail", input=row["action"]) as obs:
                 if obs:
                     obs.update(output=row)

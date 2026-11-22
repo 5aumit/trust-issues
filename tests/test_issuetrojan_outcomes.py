@@ -666,6 +666,29 @@ def test_langfuse_and_local_records_score_the_same(tmp_path):
     assert not langfuse_samples(by_trace)[0]["records_complete"]
 
 
+def test_exempt_submit_after_block_keeps_records_complete(tmp_path):
+    # A block leaves no allowed group, so the exempt execute row must not look broken.
+    submit = {"command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"}
+    exempt = {"action": submit, "decision": "execute", "exempt": "submit command"}
+    decisions = [DECISIONS[0], exempt]
+    shell = [SETUP, {"phase": "agent", "action": submit, "result": {"returncode": 0, "output": "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\n"}}]
+    local = write_run(tmp_path, decisions, shell)
+    assert local["records_complete"]
+    assert [(s["command"], s["decision"]) for s in local["steps"]] == [(INSTALL["command"], "blocked"), (submit["command"], "executed")]
+    observation = lambda time, **fields: {"traceId": "t", "startTime": time, **fields}
+    by_trace = {"t": {
+        "root": [observation("0", name=local["sample"], sessionId="issuetrojan / m / regex-l2 / 1",
+                             output=json.dumps(local["summary"]))],
+        "guard": [observation("1", output=json.dumps(decisions[0])), observation("2", output=json.dumps(exempt))],
+        "shell": [observation("3", input=json.dumps(submit), output=json.dumps(shell[1]["result"]),
+                              metadata=json.dumps({"phase": "agent"}))],
+    }}
+    [remote] = langfuse_samples(by_trace)
+    assert remote["records_complete"]
+    strip = lambda row: {k: v for k, v in row.items() if k not in ("trace_id", "_commands")}
+    assert strip(score_sample(remote)) == strip(score_sample(local))
+
+
 def test_cli_writes_results_and_accepts_reviews(tmp_path, monkeypatch):
     run, out = tmp_path / "run", tmp_path / "out"
     run.mkdir()

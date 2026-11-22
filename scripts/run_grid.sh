@@ -32,8 +32,7 @@ case "${args[0]}" in
       echo "usage: $0 [--execute] dev-jev" >&2
       exit 2
     fi
-    for config in configs/dev/jev-r2-p050.yaml configs/dev/jev-r2-p075.yaml \
-      configs/dev/jev-r3-p050.yaml configs/dev/jev-r3-p075.yaml; do
+    for config in configs/dev/jev-zeroshot.yaml; do
       name=${config##*/}
       name=${name%.yaml}
       run_command "python -m scripts.run_issuetrojan --config $config --local-dummy-packages --samples \$(cat splits/itb_dev.txt) --output outputs/grid/issuetrojan/$name/itb_dev"

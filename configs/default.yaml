@@ -13,7 +13,6 @@ security:
     - name: jev
       enabled: false
       model: typesafe/jev-1.14
-      risk_threshold: 3.0
       probability_threshold: 0.75
     - name: regex
       enabled: false
