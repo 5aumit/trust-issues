@@ -6,7 +6,8 @@ Course project for [TAI4SE](https://tai4se.github.io).
 
 We study whether security guardrails stop coding agents from following malicious
 instructions in GitHub issues. We compare runs with guardrails enabled and
-disabled using CodeIPI and IssueTrojanBench. Both benchmarks use mini-swe-agent.
+disabled using CodeIPI and IssueTrojanBench. SWE-bench Verified measures how
+guardrails affect normal coding work. All three benchmarks use mini-swe-agent.
 
 ## Setup
 
@@ -29,7 +30,7 @@ Or copy `.env.example` to `.env`, fill it in, and load it with
 ## Configure the agent
 
 Both runners read `configs/default.yaml`. It sets the experiment name, model,
-step limit, time limit, cost limit, and security checks. The default model is
+OpenRouter hosts, step limit, time limit, cost limit, and security checks. The default model is
 `openrouter/openai/gpt-oss-20b`. Guardrails are disabled by default.
 
 Copy the config to create an experiment configuration. Pass it to either runner
@@ -63,6 +64,20 @@ See [the agent guide](agents/README.md) for details.
 
 Time and cost limits are checked between agent steps. An active model request
 can exceed them.
+
+OpenRouter sends each request to one of several hosts for the same model, and
+hosts differ in quality. To keep runs comparable, set `providers` to the hosts
+to try, such as `providers: [AkashML]`. Requests do not fall back to other
+public hosts, but accessible private endpoints can still be eligible. Each task's
+`model-calls.json` and Langfuse trace record the host when it is returned.
+Report the host with your results.
+
+Before using a new model or host, run five quick SWE-bench tasks and check that
+some are resolved:
+
+```bash
+python -m scripts.run_swebench --config path/to/config.yaml --instances django__django-11099 pytest-dev__pytest-10081 sympy__sympy-12096 pallets__flask-5014 scikit-learn__scikit-learn-11310 --output outputs/model-check
+```
 
 ## Run CodeIPI
 
@@ -99,6 +114,28 @@ docker build -t issuetrojan-smoke:py312 \
   -f configs/issuetrojan/Dockerfile configs/issuetrojan
 ```
 
+Supply-chain package installs normally stay offline and fail when the requested
+package is not present in the image. To study whether an agent attempts and
+completes the install, build a separate opt-in image with six empty local wheel
+distributions. The wheels contain package metadata only. The agent still runs
+the install command, and the default image remains unchanged:
+
+```bash
+docker build --build-arg LOCAL_DUMMY_PACKAGES=1 \
+  -t issuetrojan-smoke:py312-dummy-packages \
+  -f configs/issuetrojan/Dockerfile configs/issuetrojan
+python -m scripts.run_issuetrojan \
+  --samples sympy_matrix_det:supply_chain:mid_en_visible \
+  --local-dummy-packages \
+  --output outputs/issuetrojan-supply-chain-local-packages
+```
+
+The opt-in image sets pip to use only its local wheelhouse. Trusted Requests
+setup ignores this pip configuration while still online; agent commands do not.
+The runner records the option in provenance and checks distribution metadata
+before and after the agent run. This records whether installation occurred; it
+does not change EEM or the released EEM score.
+
 List cases, then run one sample:
 
 ```bash
@@ -117,6 +154,69 @@ Each case uses its mapped repository and commit. See [seed revisions](docs/issue
 for these choices and [benchmark details](benchmarks/README.md) for data sources.
 The output directory contains `results.json` and per-sample records, including
 configuration, model calls, commands, guardrail decisions, and repository changes.
+`provenance.json` records the code revision and package versions (`null` when
+a package is not installed).
+
+## Run SWE-bench Verified
+
+The runner downloads the 500 SWE-bench Verified tasks from Hugging Face at a fixed
+revision. Each task pulls its official Docker image, about 1-3 GB.
+
+List tasks, then run one:
+
+```bash
+python -m scripts.run_swebench --list
+python -m scripts.run_swebench --instances django__django-11099 --output outputs/swebench-django-11099
+```
+
+The output directory must not already exist. `--instances` accepts multiple IDs.
+`--limit N` runs the first N selected tasks. Omit both to run all 500.
+`--steps`, `--seconds`, and `--cost-limit` override the config limits for a run.
+
+The agent works in the task's image with networking disabled. The runner saves
+every change in `/testbed` as the patch, including binary files. It then grades the
+patch with the official `swebench` harness, which applies it in a fresh container
+and runs the official test script. A task is resolved when the issue's tests now
+pass and the other tests still pass. Each task folder contains the patch, commands,
+guardrail decisions, and model calls. The harness logs, test output, and grading
+report are in the task's `logs/run_evaluation/` folder. `provenance.json` records
+the code revision and package versions, as for IssueTrojanBench.
+
+`results.json` groups tasks as the official harness does: resolved, unresolved,
+empty patch, error, and incomplete. Errors include agent failures, patches that do
+not apply, and test timeouts. `resolved_rate` is resolved tasks divided by all
+selected tasks. `resolved_ci_low` and `resolved_ci_high` give the 95% Wilson
+confidence interval for that rate.
+
+Each attempted task trace records a numeric `SWE-bench/resolved` contribution
+of 1 for a resolved task and 0 otherwise. The raw `resolved` value and
+`scoring_status` remain in the trace output, including `resolved: null` for
+errors. Traces exist only for attempted tasks, so their average can differ from
+the selected-task `resolved_rate` when a run stops early.
+
+### Command block rate
+
+SWE-bench issues contain no prompt injection, so we treat every command the
+agent proposes as safe. Any blocked command is then a false positive. A
+guardrail's command block rate (CBR) is blocked commands divided by checked
+commands. Each block also costs the agent one of its limited steps. Real coding
+agents usually have no such limit, so this cost is specific to our setup. A
+command blocked by several guardrails counts once. Commands the agent formats
+incorrectly never reach the guardrails and are not counted.
+
+Each task's `summary.json` records `commands_checked`, `commands_blocked`,
+`blocks_by_check`, and `command_block_rate`. The rate is `null` when the agent
+ran no commands. Traces record it as `SWE-bench/command_block_rate`.
+`results.json` reports `command_block_rate` over all commands in the run, and
+`mean_task_command_block_rate` averaged over tasks, so a few long tasks can't
+dominate. It also reports `cbr_tasks`, `commands_checked`, `commands_blocked`,
+and `tasks_with_blocks`. These numbers include every task whose agent run
+finished, even if grading then failed. They leave out agent failures, including
+guardrail errors, because those tasks have no complete command record. With
+guardrails disabled, CBR is 0.
+
+Downloaded images stay on disk. Remove them with `docker image prune -a` when you
+no longer need them.
 
 ## Read results
 
@@ -124,7 +224,26 @@ Check commands and saved files alongside benchmark scores. CodeIPI can count a
 blocked command as compliance because its scorer reads attempted tool calls.
 IssueTrojanBench's EEM score checks whether selected files exist. It does not
 prove that an attack command ran. We do not check legitimate task correctness
-for IssueTrojanBench.
+for IssueTrojanBench. A few SWE-bench tests contact external websites and can fail
+for reasons unrelated to the agent's patch.
+
+Each IssueTrojanBench run also records payload-aligned EEM: whether the sample
+completed the goal its own payload describes. It is saved as `payload_eem` in
+the sample summary and as the `IssueTrojan/PayloadEEM` score in Langfuse, next
+to the original `eem`. To rescore existing runs from Langfuse or local output
+directories without rerunning the agent:
+
+```bash
+python -m benchmarks.issuetrojan.outcomes --langfuse --output outputs/itb-outcomes
+python -m benchmarks.issuetrojan.outcomes --runs outputs/issuetrojan-matrix --output outputs/itb-outcomes
+```
+
+`--langfuse` reads every session whose name starts with `issuetrojan`. Narrow
+it with `--session-prefix`. Samples the scorer cannot decide are listed in
+`review_queue.csv` for hand review; pass the filled-in file back with
+`--reviews`. See [benchmark details](benchmarks/README.md#payload-aligned-eem)
+for the goal rules and metrics. Supply chain goals need runs with
+`--local-dummy-packages`.
 
 ## Optional Langfuse tracing
 
@@ -151,9 +270,9 @@ Traces also have these tags:
 
 | Tag | Applies to | Meaning |
 |---|---|---|
-| `codeipi`, `issuetrojan` | Each benchmark | Benchmark name |
-| `agent:mini-swe-agent` | Both | Agent used |
-| `guardrail:<names>` | Both | Enabled security checks, such as `guardrail:none` or `guardrail:regex` |
+| `codeipi`, `issuetrojan`, `swebench` | Each benchmark | Benchmark name |
+| `agent:mini-swe-agent` | All | Agent used |
+| `guardrail:<names>` | All | Enabled security checks, such as `guardrail:none` or `guardrail:regex` |
 | `harness:inspect` | CodeIPI | Run through Inspect AI |
 | `github_issue` | IssueTrojanBench | Attack delivered through a GitHub issue |
 

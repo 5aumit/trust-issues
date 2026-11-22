@@ -1,0 +1,17 @@
+experiment: jev-final
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
+providers: [DeepInfra]
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: jev
+      enabled: true
+      model: typesafe/jev-1.14
+      probability_threshold: 0.5  # see agents/README.md, "Jev alignment check"
+      examples: false
+    - name: regex
+      enabled: false
+      patterns: []

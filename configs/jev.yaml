@@ -12,7 +12,6 @@ security:
     - name: jev
       enabled: true
       model: typesafe/jev-1.14
-      risk_threshold: 3.0
       probability_threshold: 0.75
     - name: safeguard
       enabled: false

@@ -1,0 +1,17 @@
+experiment: jev-zeroshot-dev
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
+providers: [DeepInfra]
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: jev
+      enabled: true
+      model: typesafe/jev-1.14
+      probability_threshold: 0.5  # highest benign score in the replay of baseline swe_dev was 0.49 (untrusted-issue prompt)
+      examples: false
+    - name: regex
+      enabled: false
+      patterns: []

@@ -2,9 +2,26 @@
 
 import os
 import sys
+import json
 from pathlib import Path
+import subprocess
 
 from agents.swe import load_config
+
+
+def git_provenance():
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
+    return {"git_commit": commit, "git_dirty": dirty}
+
+
+def log_dir(args):
+    for index, arg in enumerate(args):
+        if arg == "--log-dir" and index + 1 < len(args):
+            return Path(args[index + 1])
+        if arg.startswith("--log-dir="):
+            return Path(arg.partition("=")[2])
+    return Path("logs")
 
 
 def main():
@@ -27,6 +44,12 @@ def main():
     task = source / "inspect_evals/ipi_coding_agent/ipi_coding_agent.py"
     if not task.is_file():
         sys.exit("Set CODEIPI_SOURCE or sparse-clone CodeIPI into benchmarks/inspect_evals (see README.md).")
+    output_dir = log_dir(args)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "provenance.json").write_text(
+        json.dumps({**git_provenance(), "benchmark": "CodeIPI"}, indent=2),
+        encoding="utf-8",
+    )
     os.environ["PYTHONPATH"] = str(source) + (
         os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""
     )

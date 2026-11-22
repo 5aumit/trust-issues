@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+import json
 from pathlib import Path
+import time
 
 import yaml
 from minisweagent.models.litellm_model import LitellmModel
@@ -16,14 +18,23 @@ MODEL_TIMEOUT_SECONDS = 300
 def load_config(path: str | Path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     required = {"experiment", "model", "limits", "security"}
-    if not isinstance(data, dict) or not required <= set(data) <= required | {"require_bash"}:
-        raise ValueError("Config needs experiment, model, limits, and security, with optional require_bash")
+    if not isinstance(data, dict) or not required <= set(data) <= required | {"providers", "require_bash"}:
+        raise ValueError("Config needs experiment, model, limits, and security, with optional providers and require_bash")
     if not isinstance(data["experiment"], str) or not data["experiment"].strip():
         raise ValueError("experiment must be a non-empty string")
     if data["model"] is not None and not isinstance(data["model"], str):
         raise ValueError("model must be a string or null")
+    providers = data.setdefault("providers", None)
+    if providers is not None and (
+        not isinstance(providers, list)
+        or not providers
+        or not all(isinstance(name, str) and name.strip() for name in providers)
+        or len(set(providers)) != len(providers)
+    ):
+        raise ValueError("providers must be null or a list of unique host names")
     if "require_bash" in data and not isinstance(data["require_bash"], bool):
         raise ValueError("require_bash must be a boolean")
+
     limits = data["limits"]
     if not isinstance(limits, dict) or set(limits) != {"steps", "seconds", "cost_usd"}:
         raise ValueError("limits needs steps, seconds, and cost_usd")
@@ -45,11 +56,88 @@ def load_config(path: str | Path):
     return data
 
 
+def configure(*, path, model=None, steps=None, seconds=None, cost_limit=None):
+    config = load_config(path)
+    config["model"] = model or config["model"]
+    if not config["model"]:
+        raise ValueError("Set model in --config or pass --model")
+    for name, value in (
+        ("steps", steps),
+        ("seconds", seconds),
+        ("cost_usd", cost_limit),
+    ):
+        if value is not None:
+            if value <= 0:
+                raise ValueError("Steps, seconds, and cost limit must be positive")
+            config["limits"][name] = value
+    return config
+
+
 def observation(parent, name, kind, **kwargs):
     return parent.start_as_current_observation(name=name, as_type=kind, **kwargs) if parent else nullcontext(None)
 
 
+class ExecutionAdapter:
+    """Record Docker commands from setup, the agent, and evaluation."""
+
+    def __init__(self, env, log: Path, trace=None):
+        self.env, self.log, self.trace = env, log, trace
+        self.phase = "setup"
+
+    def __getattr__(self, name):
+        return getattr(self.env, name)
+
+    def execute(self, action: dict, **kwargs):
+        from minisweagent.exceptions import Submitted
+
+        started = time.monotonic()
+        submitted = None
+        with observation(
+            self.trace, "shell", "tool", input=action, metadata={"phase": self.phase}
+        ) as obs:
+            try:
+                result = self.env.execute(action, **kwargs)
+            except Submitted as exc:
+                # mini-swe-agent signals a normal finish with an exception. Raise it after the
+                # observation closes so Langfuse does not mark this step and its parents as errors.
+                submitted = exc
+                result = {
+                    "returncode": 0,
+                    "output": exc.messages[0]["content"],
+                    "submitted": True,
+                }
+            except Exception as exc:
+                self._record(action, {"error_type": type(exc).__name__}, started, obs)
+                raise
+            self._record(action, result, started, obs)
+        if submitted:
+            raise submitted
+        return result
+
+    def _record(self, action, result, started, obs):
+        row = {
+            "phase": self.phase,
+            "action": action,
+            "result": result,
+            "runtime_s": time.monotonic() - started,
+        }
+        with self.log.open("a") as stream:
+            stream.write(json.dumps(row) + "\n")
+        if obs:
+            obs.update(output=result)
+        print(
+            f"[{self.phase}] {action.get('command', '')[:180]} => {result.get('returncode', 'error')}",
+            flush=True,
+        )
+
+
+class ProviderAbort(RuntimeError):
+    """A provider error that retrying cannot fix, such as a bad key."""
+
+
 class TracedModel(LitellmModel):
+    abort_exceptions = [*LitellmModel.abort_exceptions, ProviderAbort]
+
     def __init__(self, *, trace, calls, cancelled, **kwargs):
         super().__init__(**kwargs)
         self.trace = trace
@@ -63,7 +151,9 @@ class TracedModel(LitellmModel):
             try:
                 response = super()._query(messages, **kwargs)
             except Exception as exc:
-                raise RuntimeError(f"Provider call failed ({type(exc).__name__})") from None
+                # Provider messages can contain secrets, so only the type is kept.
+                error = ProviderAbort if isinstance(exc, tuple(self.abort_exceptions)) else RuntimeError
+                raise error(f"Provider call failed ({type(exc).__name__})") from None
             raw = response.model_dump(mode="json")
             self.calls.append(raw)
             if obs:
@@ -75,7 +165,10 @@ class TracedModel(LitellmModel):
                         "output": usage.get("completion_tokens", 0),
                     },
                     cost_details={"total": usage["cost"]} if isinstance(usage.get("cost"), (int, float)) else None,
-                    metadata={"provider_returned_reasoning": raw.get("choices", [{}])[0].get("message", {}).get("reasoning_content")},
+                    metadata={
+                        "provider": raw.get("provider"),
+                        "provider_returned_reasoning": raw.get("choices", [{}])[0].get("message", {}).get("reasoning_content"),
+                    },
                 )
             return response
 
@@ -122,7 +215,8 @@ def run_swe(
             jev_observation.update(output=row)
             jev_observation.end()
             jev_observation = None
-        elif row["decision"] != "execute":
+        elif row["decision"] != "execute" or row.get("exempt"):
+            # Exempt submit commands get an observation so Langfuse can match them to shell records.
             with observation(trace, "security check", "guardrail", input=row["action"]) as obs:
                 if obs:
                     obs.update(output=row)
@@ -136,8 +230,16 @@ def run_swe(
     )
     # LiteLLM waits up to 6000 s by default. Cancel a stuck reply sooner; mini-swe-agent retries it.
     model_kwargs = {**stock["model"].get("model_kwargs", {}), "timeout": MODEL_TIMEOUT_SECONDS}
+    if config.get("providers"):
+        if not model_name.startswith("openrouter/"):
+            raise ValueError("providers only applies to openrouter/ models")
+        # Prefer these hosts without public fallbacks and require support for request parameters.
+        model_kwargs["extra_body"] = {**model_kwargs.get("extra_body", {}), "provider": {
+            "order": config["providers"], "allow_fallbacks": False, "require_parameters": True,
+        }}
     if config.get("require_bash", False):
         model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
+
     model = TracedModel(
         model_name=model_name, trace=trace, calls=calls, cancelled=cancelled,
         **{**stock["model"], "model_kwargs": model_kwargs},
@@ -148,7 +250,10 @@ def run_swe(
         if guarded.error:
             raise guarded.error
         agent.save(output_path, {"info": {"swe_config": config, "security_decisions": decisions}})
-        return {"result": result, "agent": agent, "model_calls": calls, "decisions": decisions}
+        return {
+            "result": result, "agent": agent, "model_calls": calls, "decisions": decisions,
+            "commands": dict(guarded.commands),
+        }
     except Exception:
         if agent.messages and agent.messages[-1].get("role") == "exit":
             exc = agent.messages[-1].get("extra", {}).get("exit_status", "Error")
