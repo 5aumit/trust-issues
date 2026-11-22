@@ -51,7 +51,7 @@ level below does, plus:
 
 For example, pass `--config configs/regex/l2_moderate.yaml`.
 
-`configs/safeguard.yaml` and `configs/granite.yaml` enable the local guard models,
+`configs/dev/safeguard.yaml` and `configs/dev/granite.yaml` enable the guard models,
 which need a served endpoint.
 
 See [the agent guide](agents/README.md) to configure, add, or edit guardrails.

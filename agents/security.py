@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
-from agents.guardrails import SUPPORTED_GUARDRAILS, GuardrailResult
+from agents.guardrails import SUPPORTED_GUARDRAILS, GuardrailResult, _is_openrouter
 
 
 class CheckFailure(RuntimeError):
@@ -43,19 +44,36 @@ def validate_checks(checks):
                 raise ValueError("Jev probability_threshold must be a number from 0 to 1")
             continue
         if name in ("safeguard", "granite"):
-            extra = {"risk_threshold", "reasoning"} if name == "safeguard" else {"think"}
+            if name == "safeguard" and "risk_threshold" in check:
+                raise ValueError("Safeguard risk_threshold is no longer supported; remove it")
+            if name == "granite" and "think" in check:
+                raise ValueError("Granite think is no longer supported; the request always turns thinking off")
+            extra = {"reasoning", "providers"} if name == "safeguard" else set()
             if set(check) - {"name", "enabled", "model", "base_url"} - extra:
                 raise ValueError(f"Unknown {name} setting")
             for key in ("model", "base_url"):
                 if key in check and (not isinstance(check[key], str) or not check[key].strip()):
                     raise ValueError(f"{name} {key} must be a nonempty string")
-            value = check.get("risk_threshold", 0)
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= 4:
-                raise ValueError("safeguard risk_threshold must be a number from 0 to 4")
+            if "base_url" in check:
+                url = urlparse(check["base_url"])
+                if check["base_url"] != check["base_url"].strip() or url.scheme not in ("http", "https") or not url.hostname:
+                    raise ValueError(f"{name} base_url must be an http or https URL")
+                if _is_openrouter(check) and url.scheme != "https":
+                    raise ValueError(f"{name} OpenRouter base_url must use https")
+                if name == "granite" and _is_openrouter(check):
+                    raise ValueError("granite runs on Ollama only, not OpenRouter")
             if check.get("reasoning", "medium") not in ("low", "medium", "high"):
                 raise ValueError("safeguard reasoning must be low, medium, or high")
-            if not isinstance(check.get("think", False), bool):
-                raise ValueError("granite think must be boolean")
+            providers = check.get("providers")
+            if providers is not None:
+                if (
+                    not isinstance(providers, list) or not providers
+                    or not all(isinstance(p, str) and p.strip() for p in providers)
+                    or len(set(providers)) != len(providers)
+                ):
+                    raise ValueError("safeguard providers must be a list of unique host names")
+                if not _is_openrouter(check):
+                    raise ValueError("safeguard providers only applies to an OpenRouter base_url")
             continue
         if set(check) != {"name", "enabled", "patterns"} or not isinstance(check["patterns"], list):
             raise ValueError("Each regex check needs name, enabled, and a patterns list")
@@ -69,12 +87,13 @@ def validate_checks(checks):
 class GuardedEnvironment:
     """Check model commands, then delegate allowed commands to mini's environment."""
 
-    def __init__(self, env, checks, record, context=None, on_jev_request=None):
+    def __init__(self, env, checks, record, context=None, on_guard_request=None, on_guard_response=None):
         self.env = env
         self.checks = validate_checks(checks)
         self.record = record
         self.context = context
-        self.on_jev_request = on_jev_request
+        self.on_guard_request = on_guard_request
+        self.on_guard_response = on_guard_response
         self.error = None
         # Commands seen by the checks, and commands blocked by at least one check.
         self.commands = {"checked": 0, "blocked": 0}
@@ -96,7 +115,12 @@ class GuardedEnvironment:
                     continue
                 if check["name"] == "jev":
                     decision = SUPPORTED_GUARDRAILS["jev"].check(
-                        command, check, self.context, on_request=self.on_jev_request,
+                        command, check, self.context, on_request=self.on_guard_request,
+                    )
+                elif check["name"] in ("safeguard", "granite"):
+                    decision = SUPPORTED_GUARDRAILS[check["name"]].check(
+                        command, check, self.context,
+                        on_request=self.on_guard_request, on_response=self.on_guard_response,
                     )
                 else:
                     decision = SUPPORTED_GUARDRAILS[check["name"]].check(command, check, self.context)

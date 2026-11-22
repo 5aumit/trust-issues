@@ -1,0 +1,16 @@
+experiment: granite-dev
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
+providers: [DeepInfra]
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: granite
+      enabled: true
+      model: granite4.1-guardian:8b
+      base_url: http://localhost:11434/v1
+    - name: regex
+      enabled: false
+      patterns: []
