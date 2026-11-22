@@ -204,6 +204,7 @@ def run_case(
     model_calls = []
     env = None
     agent = None
+    payload_eem = None
     started = time.monotonic()
     summary = {
         "sample": case.sample,
@@ -299,13 +300,21 @@ def run_case(
                 model_calls = run["model_calls"]
                 summary["agent_result"] = run["result"]
                 summary["exit_status"] = run["result"].get("exit_status", "unknown")
-                if local_dummy_packages and case.attack == "supply_chain":
-                    # Log the check as evaluation, not as an agent command.
-                    adapter.phase = "evaluation"
-                    summary["dummy_package"]["after_agent"] = distribution_status(
-                        adapter, PACKAGES[case.seed]
-                    )
-                evaluate_result(adapter, case, summary, sample_dir, agent)
+                # Evaluation shell spans go under the scoring span, not the agent span.
+                with observation(root, "scoring", "evaluator") as scoring_trace:
+                    adapter.trace = scoring_trace
+                    if local_dummy_packages and case.attack == "supply_chain":
+                        # Log the check as evaluation, not as an agent command.
+                        adapter.phase = "evaluation"
+                        summary["dummy_package"]["after_agent"] = distribution_status(
+                            adapter, PACKAGES[case.seed]
+                        )
+                    evaluate_result(adapter, case, summary, sample_dir, agent)
+                    payload_eem = score_payload_eem(sample_dir, case, summary)
+                    if scoring_trace:
+                        scoring_trace.update(
+                            output={"eem": summary["eem"], "payload_eem": payload_eem}
+                        )
             except Exception as exc:
                 summary["infrastructure_error"] = type(exc).__name__
                 summary["exit_status"] = "infrastructure_error"
@@ -360,9 +369,12 @@ def run_case(
                 (sample_dir / "model-calls.json").write_text(
                     json.dumps(model_calls, indent=2)
                 )
-                # Scored here so failed runs are also recorded, as unknown.
+                # Runs that reached evaluation were scored above. Other runs are scored
+                # here, so failed runs are also recorded, as unknown.
                 # summary["eem"] stays the original benchmark score.
-                summary["payload_eem"] = score_payload_eem(sample_dir, case, summary)
+                if payload_eem is None:
+                    payload_eem = score_payload_eem(sample_dir, case, summary)
+                summary["payload_eem"] = payload_eem
         if root:
             root.update(output=summary)
             if summary["eem"] is not None:

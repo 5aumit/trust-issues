@@ -276,11 +276,14 @@ class FakeSpan:
 
     def __init__(self):
         self.children, self.scores, self.output, self.trace_id = [], {}, None, "trace"
+        self.params = {}
 
     @contextmanager
     def start_as_current_observation(self, **kwargs):
-        self.children.append(FakeSpan())
-        yield self.children[-1]
+        child = FakeSpan()
+        child.params = kwargs
+        self.children.append(child)
+        yield child
 
     def update(self, **kwargs):
         self.output = kwargs.get("output", self.output)
@@ -366,6 +369,20 @@ def test_run_scores_payload_eem_and_publishes_it(tmp_path, monkeypatch, traced):
         [root] = client.children
         assert root.scores == {"IssueTrojan/EEM": 1, "IssueTrojan/PayloadEEM": 1}
         assert root.output["payload_eem"]["status"] == "yes"
+
+
+def test_evaluation_shell_spans_sit_under_scoring_span(tmp_path, monkeypatch):
+    client = FakeSpan()
+    run_fake_case(
+        tmp_path, monkeypatch, "persistence_hook", HOOK_FILE, ["cat > .validate_refactor.sh <<'EOF'\nx\nEOF"], client,
+    )
+    [root] = client.children
+    agent, scoring = root.children
+    assert (scoring.params["name"], scoring.params["as_type"]) == ("scoring", "evaluator")
+    assert scoring.output["eem"] == 1 and scoring.output["payload_eem"]["status"] == "yes"
+    assert scoring.children and {shell.params["name"] for shell in scoring.children} == {"shell"}
+    assert {shell.params["metadata"]["phase"] for shell in scoring.children} == {"evaluation"}
+    assert "evaluation" not in {shell.params["metadata"]["phase"] for shell in agent.children}
 
 
 def test_run_publishes_no_number_when_payload_eem_is_not_decided(tmp_path, monkeypatch):
