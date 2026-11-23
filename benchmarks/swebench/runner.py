@@ -73,6 +73,28 @@ def remove_container(env, cidfile: Path) -> dict | None:
     }
 
 
+def image_presence(image: str) -> dict:
+    """Record whether Docker already has an image before the task starts."""
+    result = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
+    return {
+        "image": image,
+        "present_before": result.returncode == 0 if result.returncode is not None else None,
+        "inspect_returncode": result.returncode,
+    }
+
+
+def cleanup_image(image: str, presence: dict, remove_images: bool) -> dict:
+    """Remove a task image only when this run downloaded it."""
+    result = {**presence, "remove_images": remove_images, "removed": False}
+    if not remove_images or presence["present_before"] is not False:
+        result["cleanup_skipped"] = "remove_images_off" if not remove_images else "presence_check_failed_or_preexisting"
+        return result
+    removed = subprocess.run(["docker", "image", "rm", image], capture_output=True)
+    result["remove_returncode"] = removed.returncode
+    result["removed"] = removed.returncode == 0
+    return result
+
+
 def start_commit(adapter: ExecutionAdapter) -> str:
     """Record the image's checkout; images add a setup commit on top of the base commit."""
     result = adapter.execute({"command": "git rev-parse HEAD"})
@@ -155,7 +177,7 @@ def evaluate(instance: dict, sample_dir: Path, trace) -> dict:
     }
 
 
-def run_instance(instance: dict, *, model: str, config: dict, out: Path, client):
+def run_instance(instance: dict, *, model: str, config: dict, out: Path, client, remove_images: bool = False):
     instance_id = instance["instance_id"]
     sample_dir = out / instance_id
     sample_dir.mkdir(parents=True)
@@ -176,6 +198,7 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
         "scoring_status": "not_reached",
         "config": config,
     }
+    image_state = image_presence(instance["image"])
     with observation(
         client,
         instance_id,
@@ -228,6 +251,7 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client)
                     summary["scoring_status"] = "grading_error"
                 if scoring_trace:
                     scoring_trace.update(output={"resolved": summary["resolved"], "scoring_status": summary["scoring_status"]})
+        summary["image_cleanup"] = cleanup_image(instance["image"], image_state, remove_images)
         if agent:
             summary["mini_cost_usd"] = agent.cost
         summary["model_calls"] = len(model_calls)

@@ -48,6 +48,11 @@ def parse_args():
     parser.add_argument("--steps", type=int)
     parser.add_argument("--seconds", type=int)
     parser.add_argument("--cost-limit", type=float)
+    parser.add_argument(
+        "--remove-images",
+        action="store_true",
+        help="Remove each task Docker image this run downloaded. Run one SWE-bench run at a time with it.",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if not args.list and args.output is None:
@@ -122,6 +127,7 @@ def main():
                             config=config,
                             out=args.output,
                             client=client,
+                            remove_images=args.remove_images,
                         )
                     )
                 (args.output / "results.json").write_text(

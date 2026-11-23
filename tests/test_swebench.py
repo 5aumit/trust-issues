@@ -168,10 +168,54 @@ def test_agent_container_failure_skips_grading_and_cleans_up(tmp_path, monkeypat
     monkeypatch.setattr(runner.subprocess, "run", run)
     monkeypatch.setattr(runner, "evaluate", lambda *args: pytest.fail("graded after an agent failure"))
     result = runner.run_instance(instance(), model="unused", config={}, out=tmp_path, client=None)
-    assert commands[0] == ["docker", "rm", "-f", "abc123"]
+    assert commands[0] == ["docker", "image", "inspect", "swebench/example:latest"]
+    assert commands[1] == ["docker", "rm", "-f", "abc123"]
     assert result["cleanup"]["verified_absent"] is True
     assert result["resolved"] is None
     assert result["infrastructure_error"] == "RuntimeError"
+
+
+def test_cleanup_image_removes_image_downloaded_for_task(monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return ok_process(command)
+
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    presence = runner.image_presence("swebench/example:latest")
+    presence["present_before"] = False
+    result = runner.cleanup_image("swebench/example:latest", presence, remove_images=True)
+    assert result["removed"] is True
+    assert calls == [
+        ["docker", "image", "inspect", "swebench/example:latest"],
+        ["docker", "image", "rm", "swebench/example:latest"],
+    ]
+
+
+@pytest.mark.parametrize("present_before, remove_images", [(True, True), (False, False)])
+def test_cleanup_image_keeps_existing_image_or_when_off(present_before, remove_images, monkeypatch):
+    monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: pytest.fail("image removal was attempted"))
+    result = runner.cleanup_image(
+        "swebench/example:latest",
+        {"image": "swebench/example:latest", "present_before": present_before, "inspect_returncode": 0},
+        remove_images,
+    )
+    assert result["removed"] is False
+
+
+def test_cleanup_image_records_failed_removal(monkeypatch):
+    def run(command, **kwargs):
+        return ok_process(command) if command[:3] != ["docker", "image", "rm"] else subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    result = runner.cleanup_image(
+        "swebench/example:latest",
+        {"image": "swebench/example:latest", "present_before": False, "inspect_returncode": 1},
+        remove_images=True,
+    )
+    assert result["removed"] is False
+    assert result["remove_returncode"] == 1
 
 
 class FakeTrace:
