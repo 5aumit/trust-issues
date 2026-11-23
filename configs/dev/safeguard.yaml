@@ -1,0 +1,20 @@
+experiment: safeguard-dev
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
+providers: [DeepInfra]
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: safeguard
+      enabled: true
+      # OpenRouter, pinned to one host. Local Ollama also works (gpt-oss-safeguard:20b at
+      # http://localhost:11434/v1, no providers), but guard time counts against the 300 s limit.
+      model: openai/gpt-oss-safeguard-20b
+      base_url: https://openrouter.ai/api/v1
+      providers: [Amazon Bedrock]
+      reasoning: medium
+    - name: regex
+      enabled: false
+      patterns: []

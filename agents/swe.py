@@ -200,21 +200,26 @@ def run_swe(
     )
     calls = model_calls if model_calls is not None else []
     decisions = []
-    jev_observation = None
+    guard_observation = None
 
-    def trace_jev_request(body):
-        nonlocal jev_observation
-        jev_observation = trace.start_observation(
+    def trace_guard_request(body):
+        nonlocal guard_observation
+        guard_observation = trace.start_observation(
             name="security check", as_type="guardrail", input=body,
         )
 
+    def trace_guard_response(info):
+        # Model, status, raw reply, duration, and usage. Also called when the request failed.
+        if guard_observation:
+            guard_observation.update(metadata=info)
+
     def save_decision(row):
-        nonlocal jev_observation
+        nonlocal guard_observation
         decisions.append(row)
-        if jev_observation:
-            jev_observation.update(output=row)
-            jev_observation.end()
-            jev_observation = None
+        if guard_observation:
+            guard_observation.update(output=row, level="ERROR" if row["decision"] == "error" else None)
+            guard_observation.end()
+            guard_observation = None
         elif row["decision"] != "execute" or row.get("exempt"):
             # Exempt submit commands get an observation so Langfuse can match them to shell records.
             with observation(trace, "security check", "guardrail", input=row["action"]) as obs:
@@ -226,7 +231,8 @@ def run_swe(
     guarded = GuardedEnvironment(
         env, config["security"]["checks"], save_decision,
         context={"task": task, "source": "mini-swe-agent Bash tool"},
-        on_jev_request=trace_jev_request if trace else None,
+        on_guard_request=trace_guard_request if trace else None,
+        on_guard_response=trace_guard_response if trace else None,
     )
     # LiteLLM waits up to 6000 s by default. Cancel a stuck reply sooner; mini-swe-agent retries it.
     model_kwargs = {**stock["model"].get("model_kwargs", {}), "timeout": MODEL_TIMEOUT_SECONDS}

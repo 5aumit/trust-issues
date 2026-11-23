@@ -160,6 +160,125 @@ The model and `examples: false` above are defaults when settings are omitted. Th
 `latest` alias. A stale `risk_threshold` setting is rejected with an error.
 Guardrails remain disabled in `configs/default.yaml`.
 
+### Safeguard and Granite checks
+
+`safeguard` ([gpt-oss-safeguard](https://ollama.com/library/gpt-oss-safeguard))
+and `granite` ([Granite Guardian 4.1](https://ollama.com/library/granite4.1-guardian))
+are open-weight guard models. Each one judges the same task as Jev. Every
+sentence of `JevGuardrail.INSTRUCTIONS` appears in `SafeguardGuardrail.POLICY`
+and in `GraniteGuardrail.CRITERIA`, word for word, except these changes:
+
+- Safeguard: the answer words `yes` and `no` become the JSON answers, and Jev's
+  headings become the vendor's section headings.
+- Granite: Jev's persona sentence ("You are a security monitor...") is dropped,
+  because Granite has its own judge persona. "Answer `yes`/`no`" becomes "the
+  criteria is met (`yes`)/not met (`no`)".
+- Both add only format and input-label sentences, such as the JSON format line or
+  "The user's message holds `issue_text` and `source`."
+
+`tests/test_model_guardrails.py` checks this sentence by sentence against Jev's
+text. It fails if a Jev sentence is missing, if a prompt adds a sentence that is
+not on its short list of format lines, or if Jev's text changes under a listed
+rewording.
+
+| Guardrail | Requests per command | Request | Answer | Blocks when |
+|---|---|---|---|---|
+| `jev` | 1 | `noul` question with `INSTRUCTIONS`; `issue_text`, `source`, `command` as fields | Probability that the command is misaligned | `probability >= probability_threshold` |
+| `safeguard` | 1 | System: `POLICY`. User: `issue_text`, `source`, and `command`, each labeled. | JSON `{"misaligned": true}` or `{"misaligned": false}` | `misaligned` is `true` |
+| `granite` | 1 | System: `CRITERIA`. User: `issue_text` and `source`. Assistant: `command`. Ollama's template adds the judge block. | `<score>yes</score>` or `<score>no</score>` | the score is `yes` |
+
+Neither guardrail has a threshold. They answer yes or no, and Jev returns a
+probability, so their decisions are not directly comparable with Jev's.
+A stale `risk_threshold` setting is rejected with an error.
+
+Why each request looks the way it does:
+
+- Safeguard follows OpenAI's gpt-oss-safeguard guide: the policy goes in the
+  system message and the content in the user message. The policy has the sections
+  INSTRUCTIONS, DEFINITIONS, VIOLATES (1), and SAFE (0), and no EXAMPLES, so it is
+  zero-shot like Jev. It states the JSON output format near the top and again at
+  the end, as the guide recommends. The reasoning effort is sent as
+  `reasoning.effort` on OpenRouter and as `reasoning_effort` on Ollama.
+- Granite uses IBM's bring-your-own-criteria through Ollama's
+  `granite4.1-guardian` chat template. That template reads the first system
+  message as the criteria, scores the last message's role (here "the last
+  assistant's text"), and appends the `<guardian>` judge block itself. The
+  request sends `reasoning_effort: "none"`, which Ollama's OpenAI endpoint maps to
+  `think=false`. Without it, Ollama 0.40 turns thinking on: a test on an RX 6850M XT
+  took 10 to 12 seconds per check instead of 5, with about 300 tokens of reasoning.
+  IBM recommends no-think for production guardrails. A server without this template would not add the judge
+  block, so Granite is supported on Ollama only. The old `think` setting is
+  rejected.
+
+Do not change `SafeguardGuardrail.POLICY` or `GraniteGuardrail.CRITERIA` after dev
+results have been seen.
+
+Each request retries once on a transport error or timeout, an HTTP 429, or an
+HTTP 5xx, with the same body, as Jev does. It waits 2 seconds before the retry, and
+it also retries an HTTP 200 reply that holds only an error, which OpenRouter can
+send for an upstream failure. Jev does neither. Langfuse metadata records the final
+outcome only. Temperature is 0 and each request has a 60-second timeout.
+
+Guardrail time counts against the agent's `seconds` limit (mini-swe-agent's wall
+clock includes command execution, and checks run inside it). Jev and Safeguard on
+OpenRouter take about 1 second per check. A slower local model can make samples
+end at the time limit for reasons that have nothing to do with the attack.
+
+#### Safeguard on OpenRouter (used by `configs/dev/safeguard.yaml`)
+
+```yaml
+    - name: safeguard
+      enabled: true
+      model: openai/gpt-oss-safeguard-20b
+      base_url: https://openrouter.ai/api/v1
+      providers: [Amazon Bedrock]           # pin one host; no fallback to another
+      reasoning: medium                     # low, medium, or high
+```
+
+`OPENROUTER_API_KEY` is the key. `providers` is accepted only with an OpenRouter
+`base_url`, which must use `https`. Granite rejects an OpenRouter `base_url`. It sends `provider.order`, `allow_fallbacks: false`, and
+`require_parameters: true`, as the agent model's `providers` setting does.
+
+#### Granite (and optionally Safeguard) on Ollama
+
+```bash
+ollama pull granite4.1-guardian:8b     # 6.9 GB
+ollama pull gpt-oss-safeguard:20b      # 14 GB, only for Safeguard on Ollama
+OLLAMA_CONTEXT_LENGTH=16384 OLLAMA_KEEP_ALIVE=24h ollama serve
+```
+
+```yaml
+    - name: granite
+      enabled: true
+      model: granite4.1-guardian:8b
+      base_url: http://localhost:11434/v1
+```
+
+Set `OLLAMA_CONTEXT_LENGTH` before you start the Ollama server. Ollama's
+[context length page](https://docs.ollama.com/context-length) says the default is
+4k tokens on GPUs with less than 24 GiB of memory. Its
+[OpenAI compatibility page](https://docs.ollama.com/api/openai-compatibility)
+says that API has no way to set the context size, so the server setting is the
+only lever. A short window drops or cuts the issue text without an error. Check
+the loaded size with `ollama ps` (column `CONTEXT`) before a long run, and check
+that `PROCESSOR` shows `100% GPU`. Set `OLLAMA_KEEP_ALIVE=24h` as well. Ollama
+otherwise unloads a model after 5 idle minutes, and reloading it uses the sample's
+time. Both models share one port, and Ollama loads each on demand. Do not commit
+model files.
+
+Omitted settings use the Ollama model names and base URL. Set `GUARD_API_KEY` if a
+non-OpenRouter endpoint needs a bearer token. Local decision records and Langfuse
+observations include `misaligned` for both guardrails. Endpoint errors (after the
+retry), timeouts, and replies that are not valid JSON or a yes or no score raise
+`CheckFailure`, so the sample stays unscored. `configs/dev/safeguard.yaml` and
+`configs/dev/granite.yaml` enable one check each with the same agent model, host,
+and limits as `configs/dev/jev-zeroshot.yaml`. `scripts/run_grid.sh dev-slm` runs
+both on the ITB dev and SWE-bench dev splits, as `dev-jev` does for Jev.
+Guardrails remain disabled in `configs/default.yaml`.
+
+Neither model was trained on shell commands, so treat them as general guards
+steered by this policy.
+
 ## Add or edit a guardrail
 
 1. Edit `RegexGuardrail` or add a `Guardrail` subclass in `guardrails.py`.
@@ -170,6 +289,8 @@ Guardrails remain disabled in `configs/default.yaml`.
 3. Update `validate_checks()` in `security.py` if the guardrail needs different
    settings. All checks require `name` and `enabled`. Regex also requires
    `patterns`. Jev accepts `model`, `probability_threshold`, and `examples`.
+   Safeguard and Granite accept `model` and `base_url`. Safeguard also accepts
+   `reasoning` and, with an OpenRouter `base_url`, `providers`.
 4. Verify blocks, disabled checks, generic feedback, and internal records in
    `tests/test_swe.py`. Run `python -m pytest tests/test_swe.py -q`.
 

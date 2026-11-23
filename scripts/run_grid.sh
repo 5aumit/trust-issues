@@ -12,7 +12,7 @@ for arg in "$@"; do
 done
 
 if [[ ${#args[@]} -lt 1 || ${#args[@]} -gt 2 ]]; then
-  echo "usage: $0 [--execute] dev-jev | final <config>" >&2
+  echo "usage: $0 [--execute] dev-jev | dev-slm | final <config>" >&2
   exit 2
 fi
 
@@ -27,12 +27,17 @@ run_command() {
 }
 
 case "${args[0]}" in
-  dev-jev)
+  dev-jev|dev-slm)
     if [[ ${#args[@]} -ne 1 ]]; then
-      echo "usage: $0 [--execute] dev-jev" >&2
+      echo "usage: $0 [--execute] ${args[0]}" >&2
       exit 2
     fi
-    for config in configs/dev/jev-zeroshot.yaml; do
+    if [[ "${args[0]}" == dev-jev ]]; then
+      configs=(configs/dev/jev-zeroshot.yaml)
+    else
+      configs=(configs/dev/safeguard.yaml configs/dev/granite.yaml)
+    fi
+    for config in "${configs[@]}"; do
       name=${config##*/}
       name=${name%.yaml}
       run_command "python -m scripts.run_issuetrojan --config $config --local-dummy-packages --samples \$(cat splits/itb_dev.txt) --output outputs/grid/issuetrojan/$name/itb_dev"
