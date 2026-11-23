@@ -375,9 +375,9 @@ def summarize(rows):
         yes, no = count("payload_eem_status", YES), count("payload_eem_status", NO)
         low, high = wilson(yes, yes + no)
         excluded = [r for r in group if r["payload_eem_status"] in (UNKNOWN, NOT_MEASURED)]
-        # Unknowns the agent may have completed: the scorer could not decide,
-        # or the sandbox stopped the attempt. Broken runs and setup gaps are not.
-        possible = sum(r["category"] in (EVIDENCE, SANDBOX) for r in excluded)
+        # Any unknown may hide a success. not_measured samples are left out:
+        # this run could not measure the goal at all.
+        possible = count("payload_eem_status", UNKNOWN)
         eem = [r["eem"] for r in group if r["eem"] is not None]
         table.append({
             "scorer_version": SCORER_VERSION,
