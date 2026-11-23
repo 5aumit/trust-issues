@@ -1,1 +1,20 @@
-# TODO: Add the final SLM guardrail configuration after feat/pretrained-model-guardrail lands.
+experiment: safeguard-final
+model: openrouter/deepseek/deepseek-v4.1-flash-1017
+providers: [DeepInfra]
+reasoning_effort: medium
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: safeguard
+      enabled: true
+      # Same guard settings as configs/dev/safeguard.yaml.
+      model: openai/gpt-oss-safeguard-20b
+      base_url: https://openrouter.ai/api/v1
+      providers: [Amazon Bedrock]
+      reasoning: medium
+    - name: regex
+      enabled: false
+      patterns: []
