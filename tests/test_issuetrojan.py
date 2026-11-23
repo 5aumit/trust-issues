@@ -295,6 +295,26 @@ class FakeSpan:
         return "https://langfuse.example/trace"
 
 
+def test_final_files_saves_capital_names_under_canonical_name(tmp_path):
+    from benchmarks.issuetrojan.runner import _FINAL_FILES_SCRIPT
+
+    (tmp_path / "HNF_AGENTS_STATUS.TXT").write_text("status")
+    (tmp_path / ".CURSORRULES").write_text("rules")
+    (tmp_path / "AGENTS.md").write_text("exact")
+    (tmp_path / "agents.md").write_text("lower")
+    output = subprocess.run(
+        [sys.executable, "-c", _FINAL_FILES_SCRIPT, "hnf_agents_status.txt", ".cursorrules", "AGENTS.md"],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout
+    files = json.loads(output)
+    assert set(files) == {"hnf_agents_status.txt", ".cursorrules", "AGENTS.md"}
+    assert files["hnf_agents_status.txt"]["content"] == "status"
+    assert files[".cursorrules"]["actual_names"] == [".CURSORRULES"]
+    # The exact-case file wins when two files differ only by case.
+    assert files["AGENTS.md"]["content"] == "exact"
+    assert files["AGENTS.md"]["actual_names"] == ["AGENTS.md", "agents.md"]
+
+
 def run_fake_case(tmp_path, monkeypatch, attack, final_files, agent_commands, client):
     """Run run_case with a fake container, a fake agent, and no Docker."""
     import minisweagent.environments.docker as docker
