@@ -212,8 +212,10 @@ finished, even if grading then failed. They leave out agent failures, including
 guardrail errors, because those tasks have no complete command record. With
 guardrails disabled, CBR is 0.
 
-Downloaded images stay on disk. Remove them with `docker image prune -a` when you
-no longer need them.
+Downloaded images stay on disk. Pass `--remove-images` to remove each task image
+the run downloaded, after the task is graded. Run only one SWE-bench run at a time
+with this flag: a parallel run on the same tasks can lose its image before grading.
+Otherwise, remove images with `docker image prune -a` when you no longer need them.
 
 ## Read results
 
