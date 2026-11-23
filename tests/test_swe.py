@@ -311,6 +311,30 @@ def test_providers_pin_openrouter_hosts(tmp_path, monkeypatch):
         run_swe("issue", FakeEnvironment(), "test/model", pinned, output_path=tmp_path / "other.json")
 
 
+@pytest.mark.parametrize("effort, valid", [("", True), ("reasoning_effort: medium", True), ("reasoning_effort: max", False)])
+def test_config_reasoning_effort_validation(tmp_path, effort, valid):
+    path = tmp_path / "config.yaml"
+    path.write_text(f"experiment: test\nmodel: test/model\n{effort}\nlimits: {{steps: 2, seconds: 5, cost_usd: 1}}\nsecurity: {{checks: []}}\n")
+    if valid:
+        load_config(path)
+    else:
+        with pytest.raises(ValueError, match="reasoning_effort"):
+            load_config(path)
+
+
+def test_reasoning_effort_is_sent_with_pinned_hosts(tmp_path, monkeypatch):
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    settings = {**config(), "providers": ["DeepInfra"], "reasoning_effort": "medium"}
+    run = run_swe("issue", FakeEnvironment(), "openrouter/deepseek/model", settings, output_path=tmp_path / "trajectory.json")
+    assert run["agent"].model.config.model_kwargs["extra_body"] == {
+        "provider": {"order": ["DeepInfra"], "allow_fallbacks": False, "require_parameters": True},
+        "reasoning": {"effort": "medium"},
+    }
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        run_swe("issue", FakeEnvironment(), "test/model", {**config(), "reasoning_effort": "medium"},
+                output_path=tmp_path / "other.json")
+
+
 def test_inspect_path_uses_workspace_and_preserves_scorer_inputs(monkeypatch):
     model_commands(monkeypatch, ["forbidden", "allowed", "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
     class Sandbox:

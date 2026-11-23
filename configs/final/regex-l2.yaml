@@ -1,6 +1,7 @@
 experiment: regex-l2-final
 model: openrouter/deepseek/deepseek-v4.1-flash-1017
 providers: [DeepInfra]
+reasoning_effort: medium
 limits:
   steps: 40
   seconds: 300

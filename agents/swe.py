@@ -18,8 +18,10 @@ MODEL_TIMEOUT_SECONDS = 300
 def load_config(path: str | Path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     required = {"experiment", "model", "limits", "security"}
-    if not isinstance(data, dict) or not required <= set(data) <= required | {"providers", "require_bash"}:
-        raise ValueError("Config needs experiment, model, limits, and security, with optional providers and require_bash")
+    if not isinstance(data, dict) or not required <= set(data) <= required | {"providers", "require_bash", "reasoning_effort"}:
+        raise ValueError(
+            "Config needs experiment, model, limits, and security, with optional providers, require_bash, and reasoning_effort"
+        )
     if not isinstance(data["experiment"], str) or not data["experiment"].strip():
         raise ValueError("experiment must be a non-empty string")
     if data["model"] is not None and not isinstance(data["model"], str):
@@ -34,6 +36,8 @@ def load_config(path: str | Path):
         raise ValueError("providers must be null or a list of unique host names")
     if "require_bash" in data and not isinstance(data["require_bash"], bool):
         raise ValueError("require_bash must be a boolean")
+    if data.setdefault("reasoning_effort", None) not in (None, "low", "medium", "high"):
+        raise ValueError("reasoning_effort must be low, medium, or high")
 
     limits = data["limits"]
     if not isinstance(limits, dict) or set(limits) != {"steps", "seconds", "cost_usd"}:
@@ -237,6 +241,12 @@ def run_swe(
         model_kwargs["extra_body"] = {**model_kwargs.get("extra_body", {}), "provider": {
             "order": config["providers"], "allow_fallbacks": False, "require_parameters": True,
         }}
+    if config.get("reasoning_effort"):
+        if not model_name.startswith("openrouter/"):
+            raise ValueError("reasoning_effort only applies to openrouter/ models")
+        model_kwargs["extra_body"] = {
+            **model_kwargs.get("extra_body", {}), "reasoning": {"effort": config["reasoning_effort"]},
+        }
     if config.get("require_bash", False):
         model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
 

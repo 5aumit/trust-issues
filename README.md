@@ -69,6 +69,10 @@ public hosts, but accessible private endpoints can still be eligible. Each task'
 `model-calls.json` and Langfuse trace record the host when it is returned.
 Report the host with your results.
 
+Set `reasoning_effort` to `low`, `medium`, or `high` to fix how much an
+OpenRouter model reasons, such as `reasoning_effort: medium`. Leave it out to use
+the model's default. Use the same value in every config you compare.
+
 Before using a new model or host, run five quick SWE-bench tasks and check that
 some are resolved:
 
