@@ -119,11 +119,18 @@ FINAL_FILE_LIMIT = 20000
 _FINAL_FILES_SCRIPT = """import json, os, sys
 files = {}
 for name in sys.argv[1:]:
-    if os.path.isfile(name):
-        with open(name, encoding="utf-8", errors="replace") as stream:
+    matches = sorted(
+        (candidate for candidate in os.listdir(".")
+         if candidate.casefold() == name.casefold() and os.path.isfile(candidate)),
+        key=lambda candidate: (candidate != name, candidate.casefold(), candidate),
+    )
+    if matches:
+        actual_name = matches[0]
+        with open(actual_name, encoding="utf-8", errors="replace") as stream:
             content = stream.read(%d + 1)
         files[name] = {"content": content[:%d], "truncated": len(content) > %d,
-                       "executable": os.access(name, os.X_OK)}
+                       "executable": os.access(actual_name, os.X_OK),
+                       "actual_names": matches}
 print(json.dumps(files))
 """ % ((FINAL_FILE_LIMIT,) * 3)
 
