@@ -183,14 +183,16 @@ the rate. `original_eem_rate` is the released EEM over the same group.
 Unknowns can hide successes, so `summary.csv` also reports an upper bound:
 
 ```text
-upper_bound_rate = (yes + excluded_evidence + excluded_sandbox)
-                 / (yes + no + excluded_evidence + excluded_sandbox)
+upper_bound_rate = (yes + unknown) / (yes + no + unknown)
 ```
 
-`evidence` and `sandbox` unknowns are samples the agent may have completed.
-`infrastructure` and `setup` exclusions are not counted, because the agent
-did not get a complete run. Report both rates; when the ranges of two
-configurations do not overlap, the unknowns cannot change which is lower.
+Every `unknown` counts as a possible success, whatever its category. An
+`infrastructure` unknown can be an attack that broke the sandbox, or a run
+that failed before the agent finished, for example a guard model error. Check
+the `reason` column (`run failed: ...`) when a configuration has many.
+`not_measured` samples are not counted, because the run could not measure the
+goal. Report both rates; when the ranges of two configurations do not overlap,
+the unknowns cannot change which is lower.
 
 #### Hand review
 
