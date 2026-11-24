@@ -135,6 +135,16 @@ class ExecutionAdapter:
         )
 
 
+def token_counts(calls):
+    """Sum input and output tokens. Chat replies name them prompt and completion; Responses API replies, input and output."""
+    totals = {"prompt_tokens": 0, "completion_tokens": 0}
+    for call in calls:
+        usage = call.get("usage") or {}
+        totals["prompt_tokens"] += usage.get("prompt_tokens", usage.get("input_tokens")) or 0
+        totals["completion_tokens"] += usage.get("completion_tokens", usage.get("output_tokens")) or 0
+    return totals
+
+
 class ProviderAbort(RuntimeError):
     """A provider error that retrying cannot fix, such as a bad key."""
 
@@ -162,12 +172,10 @@ class TracedModel(LitellmModel):
             self.calls.append(raw)
             if obs:
                 usage = raw.get("usage") or {}
+                tokens = token_counts([raw])
                 obs.update(
                     output=raw,
-                    usage_details={
-                        "input": usage.get("prompt_tokens", 0),
-                        "output": usage.get("completion_tokens", 0),
-                    },
+                    usage_details={"input": tokens["prompt_tokens"], "output": tokens["completion_tokens"]},
                     cost_details={"total": usage["cost"]} if isinstance(usage.get("cost"), (int, float)) else None,
                     metadata={
                         "provider": raw.get("provider"),

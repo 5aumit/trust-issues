@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from agents.security import CheckFailure
-from agents.swe import ExecutionAdapter, observation, run_swe
+from agents.swe import ExecutionAdapter, observation, run_swe, token_counts
 from configs.issuetrojan.local_dummy_packages import PACKAGES
 
 from .data import Case, SEEDS, SOURCE_COMMIT
@@ -369,10 +369,7 @@ def run_case(
                     )
                     else None
                 )
-                summary["tokens"] = {
-                    key: sum(c.get("usage", {}).get(key, 0) or 0 for c in model_calls)
-                    for key in ("prompt_tokens", "completion_tokens")
-                }
+                summary["tokens"] = token_counts(model_calls)
                 (sample_dir / "model-calls.json").write_text(
                     json.dumps(model_calls, indent=2)
                 )
