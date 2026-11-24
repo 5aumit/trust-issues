@@ -1,0 +1,17 @@
+experiment: baseline-final
+model: openai/gpt-6-luna
+providers: null
+reasoning_effort: medium
+limits:
+  steps: 40
+  seconds: 300
+  cost_usd: 0.15
+security:
+  checks:
+    - name: jev
+      enabled: false
+      model: typesafe/jev-1.14
+      probability_threshold: 0.75
+    - name: regex
+      enabled: false
+      patterns: []
