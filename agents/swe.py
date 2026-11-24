@@ -9,6 +9,7 @@ import time
 
 import yaml
 from minisweagent.models.litellm_model import LitellmModel
+from minisweagent.models.litellm_response_model import LitellmResponseModel
 
 from agents.security import GuardedEnvironment, validate_checks
 
@@ -135,6 +136,16 @@ class ExecutionAdapter:
         )
 
 
+def token_counts(calls):
+    """Sum input and output tokens. Chat replies name them prompt and completion; Responses API replies, input and output."""
+    totals = {"prompt_tokens": 0, "completion_tokens": 0}
+    for call in calls:
+        usage = call.get("usage") or {}
+        totals["prompt_tokens"] += usage.get("prompt_tokens", usage.get("input_tokens")) or 0
+        totals["completion_tokens"] += usage.get("completion_tokens", usage.get("output_tokens")) or 0
+    return totals
+
+
 class ProviderAbort(RuntimeError):
     """A provider error that retrying cannot fix, such as a bad key."""
 
@@ -162,12 +173,10 @@ class TracedModel(LitellmModel):
             self.calls.append(raw)
             if obs:
                 usage = raw.get("usage") or {}
+                tokens = token_counts([raw])
                 obs.update(
                     output=raw,
-                    usage_details={
-                        "input": usage.get("prompt_tokens", 0),
-                        "output": usage.get("completion_tokens", 0),
-                    },
+                    usage_details={"input": tokens["prompt_tokens"], "output": tokens["completion_tokens"]},
                     cost_details={"total": usage["cost"]} if isinstance(usage.get("cost"), (int, float)) else None,
                     metadata={
                         "provider": raw.get("provider"),
@@ -182,6 +191,14 @@ class TracedModel(LitellmModel):
         if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
             return {"cost": float(cost)}
         return super()._calculate_cost(response)
+
+
+class TracedResponseModel(TracedModel, LitellmResponseModel):
+    """OpenAI models through the Responses API.
+
+    OpenAI accepts tools with reasoning for GPT-6 models only there, and LiteLLM's chat
+    conversion of Responses replies drops a tool call that follows a text message.
+    """
 
 
 def run_swe(
@@ -248,15 +265,20 @@ def run_swe(
             "order": config["providers"], "allow_fallbacks": False, "require_parameters": True,
         }}
     if config.get("reasoning_effort"):
-        if not model_name.startswith("openrouter/"):
-            raise ValueError("reasoning_effort only applies to openrouter/ models")
+        if not model_name.startswith(("openrouter/", "openai/")):
+            raise ValueError("reasoning_effort only applies to openrouter/ and openai/ models")
+        # Sent in the request body: LiteLLM drops reasoning settings for models it does not list as reasoning models.
         model_kwargs["extra_body"] = {
             **model_kwargs.get("extra_body", {}), "reasoning": {"effort": config["reasoning_effort"]},
         }
+    responses_api = model_name.startswith("openai/")
     if config.get("require_bash", False):
-        model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
+        model_kwargs["tool_choice"] = (
+            {"type": "function", "name": "bash"} if responses_api
+            else {"type": "function", "function": {"name": "bash"}}
+        )
 
-    model = TracedModel(
+    model = (TracedResponseModel if responses_api else TracedModel)(
         model_name=model_name, trace=trace, calls=calls, cancelled=cancelled,
         **{**stock["model"], "model_kwargs": model_kwargs},
     )

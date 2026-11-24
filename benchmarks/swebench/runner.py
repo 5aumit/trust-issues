@@ -9,7 +9,7 @@ import time
 import uuid
 
 from agents.security import CheckFailure
-from agents.swe import ExecutionAdapter, observation, run_swe
+from agents.swe import ExecutionAdapter, observation, run_swe, token_counts
 from benchmarks.issuetrojan.outcomes import wilson
 
 from .grade import grade, log_dir
@@ -262,10 +262,7 @@ def run_instance(instance: dict, *, model: str, config: dict, out: Path, client,
             and all(isinstance(c.get("usage", {}).get("cost"), (int, float)) for c in model_calls)
             else None
         )
-        summary["tokens"] = {
-            key: sum(c.get("usage", {}).get(key, 0) or 0 for c in model_calls)
-            for key in ("prompt_tokens", "completion_tokens")
-        }
+        summary["tokens"] = token_counts(model_calls)
         (sample_dir / "model-calls.json").write_text(json.dumps(model_calls, indent=2))
         summary["resolved_metric_contribution"] = int(_is_resolved_category(summary))
         if root:

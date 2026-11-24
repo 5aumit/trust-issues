@@ -73,8 +73,13 @@ public hosts, but accessible private endpoints can still be eligible. Each task'
 Report the host with your results.
 
 Set `reasoning_effort` to `low`, `medium`, or `high` to fix how much an
-OpenRouter model reasons, such as `reasoning_effort: medium`. Leave it out to use
+OpenRouter or OpenAI model reasons, such as `reasoning_effort: medium`. Leave it out to use
 the model's default. Use the same value in every config you compare.
+
+To use the OpenAI API directly, set `OPENAI_API_KEY`, use an `openai/` model such
+as `openai/gpt-6-luna`, and set `providers: null`. `openai/` models use OpenAI's
+Responses API, the only OpenAI API that accepts tools with `reasoning_effort` for
+GPT-6 models. See `configs/final/baseline-openai.yaml`.
 
 Before using a new model or host, run five quick SWE-bench tasks and check that
 some are resolved:
