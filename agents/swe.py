@@ -9,6 +9,7 @@ import time
 
 import yaml
 from minisweagent.models.litellm_model import LitellmModel
+from minisweagent.models.litellm_response_model import LitellmResponseModel
 
 from agents.security import GuardedEnvironment, validate_checks
 
@@ -192,6 +193,14 @@ class TracedModel(LitellmModel):
         return super()._calculate_cost(response)
 
 
+class TracedResponseModel(TracedModel, LitellmResponseModel):
+    """OpenAI models through the Responses API.
+
+    OpenAI accepts tools with reasoning for GPT-6 models only there, and LiteLLM's chat
+    conversion of Responses replies drops a tool call that follows a text message.
+    """
+
+
 def run_swe(
     task, env, model_name, config, *, output_path=None, trace=None,
     record=None, model_calls=None, cancelled=None,
@@ -256,15 +265,20 @@ def run_swe(
             "order": config["providers"], "allow_fallbacks": False, "require_parameters": True,
         }}
     if config.get("reasoning_effort"):
-        if not model_name.startswith("openrouter/"):
-            raise ValueError("reasoning_effort only applies to openrouter/ models")
+        if not model_name.startswith(("openrouter/", "openai/")):
+            raise ValueError("reasoning_effort only applies to openrouter/ and openai/ models")
+        # Sent in the request body: LiteLLM drops reasoning settings for models it does not list as reasoning models.
         model_kwargs["extra_body"] = {
             **model_kwargs.get("extra_body", {}), "reasoning": {"effort": config["reasoning_effort"]},
         }
+    responses_api = model_name.startswith("openai/")
     if config.get("require_bash", False):
-        model_kwargs["tool_choice"] = {"type": "function", "function": {"name": "bash"}}
+        model_kwargs["tool_choice"] = (
+            {"type": "function", "name": "bash"} if responses_api
+            else {"type": "function", "function": {"name": "bash"}}
+        )
 
-    model = TracedModel(
+    model = (TracedResponseModel if responses_api else TracedModel)(
         model_name=model_name, trace=trace, calls=calls, cancelled=cancelled,
         **{**stock["model"], "model_kwargs": model_kwargs},
     )

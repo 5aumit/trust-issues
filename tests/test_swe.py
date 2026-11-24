@@ -16,6 +16,7 @@ from agents.swe import load_config, run_swe
 def model_commands(monkeypatch, commands):
     """Replace provider calls in tests without a runtime model injection hook."""
     from minisweagent.models.litellm_model import LitellmModel
+    from minisweagent.models.litellm_response_model import LitellmResponseModel
 
     responses = iter(commands)
 
@@ -23,6 +24,7 @@ def model_commands(monkeypatch, commands):
         return {"role": "assistant", "content": "working", "extra": {"actions": [{"command": next(responses), "tool_call_id": "call-1"}], "cost": 0.0}}
 
     monkeypatch.setattr(LitellmModel, "query", query)
+    monkeypatch.setattr(LitellmResponseModel, "query", query)
 
 
 class FakeEnvironment:
@@ -330,6 +332,10 @@ def test_reasoning_effort_is_sent_with_pinned_hosts(tmp_path, monkeypatch):
         "provider": {"order": ["DeepInfra"], "allow_fallbacks": False, "require_parameters": True},
         "reasoning": {"effort": "medium"},
     }
+    model_commands(monkeypatch, ["echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"])
+    run = run_swe("issue", FakeEnvironment(), "openai/gpt-6-luna", {**config(), "reasoning_effort": "medium"},
+                  output_path=tmp_path / "openai.json")
+    assert run["agent"].model.config.model_kwargs["extra_body"] == {"reasoning": {"effort": "medium"}}
     with pytest.raises(ValueError, match="reasoning_effort"):
         run_swe("issue", FakeEnvironment(), "test/model", {**config(), "reasoning_effort": "medium"},
                 output_path=tmp_path / "other.json")
@@ -429,6 +435,43 @@ def test_codeipi_solver_records_effective_config_and_scorer_messages(monkeypatch
     assert result.messages[0].tool_calls[0].arguments == {"command": "forbidden"}
     assert result.messages[1].content == "blocked"
     assert result.output.completion == "done"
+
+
+def test_openai_models_use_responses_api_and_keep_tool_call_after_message(tmp_path, monkeypatch):
+    import litellm
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    from agents.swe import TracedResponseModel, token_counts
+
+    requests, commands = [], ["ls", "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"]
+
+    def responses(**kwargs):
+        requests.append(kwargs)
+        command = commands[len(requests) - 1]
+        return ResponsesAPIResponse(**{
+            "id": "resp", "object": "response", "created_at": 0, "status": "completed", "model": "gpt-6-luna",
+            "output": [
+                # GPT-6 writes a message before its tool call; LiteLLM's chat conversion dropped the call.
+                {"type": "message", "id": "msg", "role": "assistant", "status": "completed",
+                 "content": [{"type": "output_text", "text": "I'll look first.", "annotations": []}]},
+                {"type": "function_call", "id": "fc", "call_id": f"call-{len(requests)}", "name": "bash",
+                 "arguments": json.dumps({"command": command}), "status": "completed"},
+            ],
+            "usage": {"input_tokens": 1000, "output_tokens": 100, "total_tokens": 1100},
+            "tools": [], "parallel_tool_calls": True, "tool_choice": "auto",
+        })
+
+    monkeypatch.setattr(litellm, "responses", responses)
+    env = FakeEnvironment()
+    settings = {**config(), "reasoning_effort": "medium", "require_bash": True}
+    run = run_swe("issue", env, "openai/gpt-6-luna", settings, output_path=tmp_path / "trajectory.json")
+    assert type(run["agent"].model) is TracedResponseModel
+    assert env.commands == commands
+    assert requests[0]["extra_body"] == {"reasoning": {"effort": "medium"}}
+    assert requests[0]["tool_choice"] == {"type": "function", "name": "bash"}
+    assert any(item.get("type") == "function_call_output" for item in requests[1]["input"])
+    assert token_counts(run["model_calls"]) == {"prompt_tokens": 2000, "completion_tokens": 200}
+    assert run["agent"].cost > 0  # Priced by LiteLLM from the model name.
 
 
 @pytest.mark.parametrize("reported, expected", [(0.0042, 0.0042), (None, "litellm"), (0, 0.0)])
